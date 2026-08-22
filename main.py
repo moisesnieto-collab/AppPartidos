@@ -524,9 +524,9 @@ def main(page: ft.Page):
                 texto_indicador_partido,
                 ft.IconButton(icon=ft.Icons.ARROW_FORWARD_IOS, on_click=partido_siguiente),
             ], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Container(content=texto_reloj, alignment="center", padding=5),
-            ft.Container(content=texto_alerta_limite, alignment="center", padding=2),
-            ft.Container(content=texto_alerta_cambio, alignment="center", padding=2),
+            ft.Container(content=texto_reloj, alignment=ft.Alignment(0, 0), padding=5),
+            ft.Container(content=texto_alerta_limite, alignment=ft.Alignment(0, 0), padding=2),
+            ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0), padding=2),
             ft.Row([
                 ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=50, icon_color=ft.Colors.GREEN,
                               on_click=play_click),
