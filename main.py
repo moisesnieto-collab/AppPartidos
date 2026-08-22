@@ -6,7 +6,7 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios"
+    page.title = "Dunalastairs - Control de Cambios v1.1"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
@@ -159,22 +159,24 @@ def main(page: ft.Page):
                     texto_alerta_cambio.value = "Tiempo de juego normal"
                     texto_alerta_cambio.color = ft.Colors.GREY_400
 
-                if texto_reloj.page:
-                    try:
+                try:
+                    if texto_reloj.page:
                         texto_reloj.update()
                         texto_alerta_cambio.update()
                         texto_alerta_limite.update()
-                    except:
-                        pass
+                except Exception:
+                    pass
 
     page.run_task(loop_reloj)
 
     def play_click(e):
         estado["corriendo"] = True
+        page.update()
 
     def pause_click(e):
         estado["corriendo"] = False
         guardar_estado_local()
+        page.update()
 
     def stop_click(e):
         estado["corriendo"] = False
@@ -185,9 +187,7 @@ def main(page: ft.Page):
         texto_alerta_cambio.color = ft.Colors.GREY_400
         texto_alerta_limite.value = ""
         guardar_estado_local()
-        if texto_reloj.page:
-            texto_reloj.update()
-            texto_alerta_limite.update()
+        page.update()
 
     def obtener_datos_jugadores():
         archivo_excel = "Equipo_Dunalastairs.xlsx"
@@ -219,7 +219,7 @@ def main(page: ft.Page):
                     estado["minutos_partido_actual"][nombre] = 0
 
             return jugadores
-        except:
+        except Exception:
             return jugadores
 
     # --- PANTALLA 1: CONFIGURACIÓN ---
@@ -284,7 +284,7 @@ def main(page: ft.Page):
                 else:
                     texto_balance.value = f"🔴 Imposible: Disponibles {capacidad_total} min | Requeridos {demanda_total} min"
                     texto_balance.color = ft.Colors.RED_400
-            except:
+            except Exception:
                 texto_balance.value = "⚠️ Ingresa números válidos."
                 texto_balance.color = ft.Colors.YELLOW_400
 
@@ -348,7 +348,14 @@ def main(page: ft.Page):
         calcular_balance()
 
         return ft.Column([
-            ft.Text("⚙️ Configuración del Torneo", size=24, weight=ft.FontWeight.BOLD),
+            ft.Row([
+                ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
+                ft.Container(
+                    content=ft.Text("v1.1", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    bgcolor=ft.Colors.GREEN_700, padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    border_radius=10
+                )
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(),
             ft.Text("Parámetros Generales", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
             tf_partidos, tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha,
@@ -431,7 +438,7 @@ def main(page: ft.Page):
                         texto_alerta.value = ""
 
                     guardar_estado_local()
-                    main_container.content = view_plantel()
+                    contenedor_plantel.content = view_plantel()
                     page.update()
 
                 return on_change
@@ -621,17 +628,22 @@ def main(page: ft.Page):
             ft.Column(controls=stats_ui, scroll=ft.ScrollMode.AUTO, expand=True)
         ], expand=True)
 
-    main_container = ft.Container(content=view_configuracion(), expand=True, padding=20)
+    # --- CONTENEDORES PERSISTENTES ---
+    contenedor_config = ft.Container(content=view_configuracion(), expand=True, padding=20, visible=True)
+    contenedor_plantel = ft.Container(content=view_plantel(), expand=True, padding=20, visible=False)
+    contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=20, visible=False)
+    contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=20, visible=False)
 
     def cambiar_pantalla(indice):
-        if indice == 0:
-            main_container.content = view_configuracion()
-        elif indice == 1:
-            main_container.content = view_plantel()
-        elif indice == 2:
-            main_container.content = view_partido()
+        contenedor_config.visible = (indice == 0)
+        contenedor_plantel.visible = (indice == 1)
+        contenedor_partido.visible = (indice == 2)
+        contenedor_minutos.visible = (indice == 3)
+
+        if indice == 1:
+            contenedor_plantel.content = view_plantel()
         elif indice == 3:
-            main_container.content = view_minutos()
+            contenedor_minutos.content = view_minutos()
         page.update()
 
     def abrir_dialogo_salir(e):
@@ -676,7 +688,13 @@ def main(page: ft.Page):
         expand=True,
         bgcolor=ft.Colors.GREY_900,
         content=ft.Column(
-            controls=[main_container, bottom_nav],
+            controls=[
+                ft.Stack(
+                    controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
+                    expand=True
+                ),
+                bottom_nav
+            ],
             expand=True,
             spacing=0
         )
