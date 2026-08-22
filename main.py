@@ -373,7 +373,8 @@ def main(page: ft.Page):
             ft.Divider(),
             ft.Text("1. Minutos Objetivo por Rendimiento", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
             ft.Row([dd_alto, dd_medio, dd_bajo], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Card(content=ft.Container(content=texto_balance, padding=10), color=ft.Colors.GREY_900),
+            ft.Card(
+                content=ft.Container(content=texto_balance, padding=10, bgcolor=ft.Colors.GREY_900, border_radius=8)),
             ft.Divider(),
             ft.Text("2. Límites por Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
             tf_max_partido,
@@ -386,7 +387,7 @@ def main(page: ft.Page):
             texto_feedback
         ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
-    # --- PANTALLA 2: PLANTEL DIVIDIDO EN TITULARES Y SUPLENTES ---
+    # --- PANTALLA 2: PLANTEL DIVIDIDO ---
     def view_plantel():
         jugadores = obtener_datos_jugadores()
         max_titulares = estado["config"]["jugadores_en_cancha"]
@@ -448,7 +449,6 @@ def main(page: ft.Page):
                         texto_alerta.value = ""
 
                     guardar_estado_local()
-                    # Recargar la vista para mover de lista inmediatamente
                     main_container.content = view_plantel()
                     page.update()
 
@@ -490,7 +490,6 @@ def main(page: ft.Page):
             texto_alerta,
             ft.Divider(),
 
-            # SECCIÓN TITULARES
             ft.Text(f"🟢 TITULARES EN CANCHA ({len(titulares_ui)})", weight=ft.FontWeight.BOLD,
                     color=ft.Colors.GREEN_400),
             ft.Container(
@@ -501,7 +500,6 @@ def main(page: ft.Page):
 
             ft.Divider(),
 
-            # SECCIÓN SUPLENTES
             ft.Text(f"🟡 BANCA / SUPLENTES ({len(suplentes_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
             ft.Container(
                 content=ft.Column(controls=suplentes_ui if suplentes_ui else [
@@ -561,12 +559,12 @@ def main(page: ft.Page):
                         ft.Text("ℹ️ Gestión de Tiempo por Partido", weight=ft.FontWeight.BOLD),
                         ft.Text(f"• Límite por jugador de campo hoy: {estado['config']['max_min_partido']} min."),
                         ft.Text("• Al sonar la alarma, conmuta en Plantel los jugadores activos.")
-                    ]), padding=12
-                ), color=ft.Colors.GREY_900
+                    ]), padding=12, bgcolor=ft.Colors.GREY_900, border_radius=8
+                )
             )
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- PANTALLA 4: DASHBOARD DE MINUTOS (ORDENADO MAYOR A MENOR) ---
+    # --- PANTALLA 4: DASHBOARD DE MINUTOS ---
     def view_minutos():
         jugadores = obtener_datos_jugadores()
         stats_ui = []
@@ -579,7 +577,6 @@ def main(page: ft.Page):
                 texto_export.value = "❌ Error al generar el Excel."
             page.update()
 
-        # Ordenar lista de jugadores de MAYOR a MENOR minutos jugados
         jugadores_ordenados = sorted(
             jugadores,
             key=lambda x: estado["minutos_jugadores"].get(x['nombre'], 0),
@@ -630,8 +627,8 @@ def main(page: ft.Page):
                                     weight=ft.FontWeight.BOLD, size=13)
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         ft.ProgressBar(value=porcentaje, color=color_barra, bgcolor=ft.Colors.GREY_900, height=6)
-                    ], spacing=8), padding=12
-                ), color=ft.Colors.GREY_900
+                    ], spacing=8), padding=12, bgcolor=ft.Colors.GREY_900, border_radius=8
+                )
             )
             stats_ui.append(tarjeta_jugador)
 
@@ -656,30 +653,27 @@ def main(page: ft.Page):
             main_container.content = view_minutos()
         page.update()
 
-        # Función para diálogo de Salir (Compatible con Navegador Web)
     def abrir_dialogo_salir(e):
-            def confirmar_salida(ev):
-                dlg_salir.open = False
-                page.update()
-                # En la web redirige/cierra la sesión de la app
-                page.launch_url("about:blank", web_window_name="_self")
-
-            def cancelar_salida(ev):
-                dlg_salir.open = False
-                page.update()
-
-            dlg_salir = ft.AlertDialog(
-                title=ft.Text("¿Deseas salir?"),
-                content=ft.Text("El estado actual del torneo ha sido guardado automáticamente."),
-                actions=[
-                    ft.TextButton("Cancelar", on_click=cancelar_salida),
-                    ft.ElevatedButton("Salir", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE,
-                                      on_click=confirmar_salida),
-                ]
-            )
-            page.overlay.append(dlg_salir)
-            dlg_salir.open = True
+        def confirmar_salida(ev):
+            dlg_salir.open = False
             page.update()
+            page.launch_url("about:blank", web_window_name="_self")
+
+        def cancelar_salida(ev):
+            dlg_salir.open = False
+            page.update()
+
+        dlg_salir = ft.AlertDialog(
+            title=ft.Text("¿Deseas salir?"),
+            content=ft.Text("El estado actual del torneo ha sido guardado automáticamente."),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cancelar_salida),
+                ft.ElevatedButton("Salir", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirmar_salida),
+            ]
+        )
+        page.overlay.append(dlg_salir)
+        dlg_salir.open = True
+        page.update()
 
     bottom_nav = ft.Container(
         bgcolor=ft.Colors.GREY_900, padding=10,
@@ -696,7 +690,6 @@ def main(page: ft.Page):
         )
     )
 
-    # Contenedor responsivo centrado
     app_layout = ft.Container(
         width=450,
         expand=True,
