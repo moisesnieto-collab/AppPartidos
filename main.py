@@ -524,9 +524,9 @@ def main(page: ft.Page):
                 texto_indicador_partido,
                 ft.IconButton(icon=ft.Icons.ARROW_FORWARD_IOS, on_click=partido_siguiente),
             ], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Container(content=texto_reloj, alignment=ft.alignment.center, padding=5),
-            ft.Container(content=texto_alerta_limite, alignment=ft.alignment.center, padding=2),
-            ft.Container(content=texto_alerta_cambio, alignment=ft.alignment.center, padding=2),
+            ft.Container(content=texto_reloj, alignment=ft.Alignment(0, 0), padding=5),
+            ft.Container(content=texto_alerta_limite, alignment=ft.Alignment(0, 0), padding=2),
+            ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0), padding=2),
             ft.Row([
                 ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=50, icon_color=ft.Colors.GREEN,
                               on_click=play_click),
@@ -638,7 +638,6 @@ def main(page: ft.Page):
         def confirmar_salida(ev):
             dlg_salir.open = False
             page.update()
-            page.window.destroy()
 
         def cancelar_salida(ev):
             dlg_salir.open = False
@@ -649,7 +648,8 @@ def main(page: ft.Page):
             content=ft.Text("El estado actual del torneo ha sido guardado automáticamente."),
             actions=[
                 ft.TextButton("Cancelar", on_click=cancelar_salida),
-                ft.ElevatedButton("Salir", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirmar_salida),
+                ft.ElevatedButton("Cerrar AVISO", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE,
+                                  on_click=confirmar_salida),
             ]
         )
         page.overlay.append(dlg_salir)
