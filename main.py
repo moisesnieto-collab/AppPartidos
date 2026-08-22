@@ -1,4 +1,5 @@
 import flet as ft
+import flet_audio as fta
 import pandas as pd
 import os
 import asyncio
@@ -6,11 +7,18 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v1.2"
+    page.title = "Dunalastairs - Control de Cambios v2.2"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
+
+    # --- Reproductor de Sonido Web mediante flet-audio ---
+    audio_alerta = fta.Audio(
+        src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3",
+        autoplay=False
+    )
+    page.overlay.append(audio_alerta)
 
     # --- Estado Global ---
     estado = {
@@ -28,11 +36,14 @@ def main(page: ft.Page):
             "min_alto": 40,
             "min_medio": 30,
             "min_bajo": 20,
-            "max_min_partido": 15
+            "max_min_partido": 15,
+            "alerta_min_1": 3,
+            "alerta_min_2": 5,
+            "alerta_min_3": 8
         }
     }
 
-    # --- FUNCIONES DE PERSISTENCIA ---
+    # --- PERSISTENCIA ---
     def guardar_estado_local():
         datos_a_guardar = {
             "partido_actual": estado["partido_actual"],
@@ -115,24 +126,44 @@ def main(page: ft.Page):
     def formatear_tiempo(segs):
         return f"{segs // 60:02d}:{segs % 60:02d}"
 
+    def reproducir_sonido():
+        try:
+            audio_alerta.play()
+        except Exception:
+            pass
+
     # --- MOTOR DEL RELOJ ---
     async def loop_reloj():
         contador_guardado = 0
+        alerta_sonada = set()
+
         while True:
             await asyncio.sleep(1)
             if estado["corriendo"]:
                 estado["segundos"] += 1
                 seg = estado["segundos"]
+                minuto_actual = seg // 60
+                segundo_modulo = seg % 60
                 texto_reloj.value = formatear_tiempo(seg)
+
+                # Detención automática al finalizar el tiempo
+                duracion_tiempo_segs = estado["config"]["minutos_por_tiempo"] * 60
+                if seg >= duracion_tiempo_segs:
+                    estado["corriendo"] = False
+                    texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO ({estado['config']['minutos_por_tiempo']} MIN)!"
+                    texto_alerta_cambio.color = ft.Colors.AMBER_400
+                    reproducir_sonido()
 
                 max_segs_partido = estado["config"]["max_min_partido"] * 60
                 jugadores_excedidos = []
+                jugadores_dict = {j['nombre']: j['puesto'] for j in obtener_datos_jugadores()}
 
                 for jugador in estado["titulares_seleccionados"]:
                     estado["minutos_jugadores"][jugador] = estado["minutos_jugadores"].get(jugador, 0) + 1
                     estado["minutos_partido_actual"][jugador] = estado["minutos_partido_actual"].get(jugador, 0) + 1
 
-                    if estado["minutos_partido_actual"][jugador] >= max_segs_partido:
+                    puesto_j = jugadores_dict.get(jugador, "").lower()
+                    if "arquero" not in puesto_j and estado["minutos_partido_actual"][jugador] >= max_segs_partido:
                         jugadores_excedidos.append(jugador)
 
                 contador_guardado += 1
@@ -140,21 +171,30 @@ def main(page: ft.Page):
                     guardar_estado_local()
                     contador_guardado = 0
 
-                en_ventana_alerta = any(abs(seg - bloque) <= 10 for bloque in range(300, 3600, 300))
+                minutos_alerta = [
+                    estado["config"]["alerta_min_1"],
+                    estado["config"]["alerta_min_2"],
+                    estado["config"]["alerta_min_3"]
+                ]
+
+                es_minuto_alerta = (minuto_actual in minutos_alerta) and (segundo_modulo < 10)
+
+                if es_minuto_alerta and minuto_actual not in alerta_sonada:
+                    reproducir_sonido()
+                    alerta_sonada.add(minuto_actual)
 
                 if jugadores_excedidos:
                     nombres_alertas = ", ".join(jugadores_excedidos)
-                    texto_alerta_limite.value = f"🚨 ¡LÍMITE ALCANZADO ({estado['config']['max_min_partido']} min)! Cambiar a: {nombres_alertas}"
+                    texto_alerta_limite.value = f"🚨 ¡LÍMITE ({estado['config']['max_min_partido']} min)! Cambiar a: {nombres_alertas}"
                 else:
                     texto_alerta_limite.value = ""
 
-                if en_ventana_alerta or jugadores_excedidos:
+                if es_minuto_alerta or jugadores_excedidos:
                     texto_reloj.color = ft.Colors.RED_400
-                    if en_ventana_alerta and not jugadores_excedidos:
-                        minuto_actual = seg // 60
+                    if es_minuto_alerta and not jugadores_excedidos:
                         texto_alerta_cambio.value = f"🔔 ¡MINUTO {minuto_actual}! Evaluar cambios."
                         texto_alerta_cambio.color = ft.Colors.RED_400
-                else:
+                elif estado["corriendo"]:
                     texto_reloj.color = ft.Colors.BLUE_200
                     texto_alerta_cambio.value = "Tiempo de juego normal"
                     texto_alerta_cambio.color = ft.Colors.GREY_400
@@ -170,6 +210,7 @@ def main(page: ft.Page):
     page.run_task(loop_reloj)
 
     def play_click(e):
+        reproducir_sonido()
         estado["corriendo"] = True
         page.update()
 
@@ -244,9 +285,17 @@ def main(page: ft.Page):
                               options=[ft.dropdown.Option("10"), ft.dropdown.Option("20"), ft.dropdown.Option("30")],
                               width=100)
 
-        tf_max_partido = ft.TextField(label="Minutos máx. por jugador por partido",
+        tf_max_partido = ft.TextField(label="Minutos máx. jugador campo por partido",
                                       value=str(estado["config"]["max_min_partido"]),
                                       keyboard_type=ft.KeyboardType.NUMBER)
+
+        tf_alt1 = ft.TextField(label="Alerta 1 (min)", value=str(estado["config"]["alerta_min_1"]),
+                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
+        tf_alt2 = ft.TextField(label="Alerta 2 (min)", value=str(estado["config"]["alerta_min_2"]),
+                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
+        tf_alt3 = ft.TextField(label="Alerta 3 (min)", value=str(estado["config"]["alerta_min_3"]),
+                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
+
         texto_balance = ft.Text("", weight=ft.FontWeight.BOLD)
         texto_feedback = ft.Text("", color=ft.Colors.GREEN)
 
@@ -310,6 +359,10 @@ def main(page: ft.Page):
                 estado["config"]["min_medio"] = int(dd_medio.value)
                 estado["config"]["min_bajo"] = int(dd_bajo.value)
                 estado["config"]["max_min_partido"] = int(tf_max_partido.value)
+                estado["config"]["alerta_min_1"] = int(tf_alt1.value)
+                estado["config"]["alerta_min_2"] = int(tf_alt2.value)
+                estado["config"]["alerta_min_3"] = int(tf_alt3.value)
+
                 texto_indicador_partido.value = f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}"
                 texto_feedback.value = "✅ Parámetros guardados."
                 guardar_estado_local()
@@ -351,7 +404,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v1.2", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Text("v2.2", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -364,8 +417,10 @@ def main(page: ft.Page):
             ft.Card(
                 content=ft.Container(content=texto_balance, padding=10, bgcolor=ft.Colors.GREY_900, border_radius=8)),
             ft.Divider(),
-            ft.Text("2. Límites por Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+            ft.Text("2. Límites y Alertas de Rotación", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
             tf_max_partido,
+            ft.Text("Minutos del partido para alertas de cambio:", size=12, color=ft.Colors.GREY_400),
+            ft.Row([tf_alt1, tf_alt2, tf_alt3], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(),
             ft.Row([
                 ft.ElevatedButton("Guardar", icon=ft.Icons.SAVE, width=150, on_click=guardar_config),
@@ -388,10 +443,19 @@ def main(page: ft.Page):
         )
         texto_alerta = ft.Text("", color=ft.Colors.RED_400)
 
+        def obtener_prioridad_orden(j):
+            puesto = j['puesto'].lower()
+            segs_hoy = estado["minutos_partido_actual"].get(j['nombre'], 0)
+            if "arquero" in puesto:
+                return (999999, segs_hoy)
+            return (0, segs_hoy)
+
+        jugadores_ordenados = sorted(jugadores, key=obtener_prioridad_orden, reverse=True)
+
         titulares_ui = []
         suplentes_ui = []
 
-        for idx, j in enumerate(jugadores, start=1):
+        for idx, j in enumerate(jugadores_ordenados, start=1):
             nombre = j['nombre']
             puesto = j['puesto']
 
@@ -544,8 +608,12 @@ def main(page: ft.Page):
                 content=ft.Container(
                     content=ft.Column([
                         ft.Text("ℹ️ Gestión de Tiempo por Partido", weight=ft.FontWeight.BOLD),
-                        ft.Text(f"• Límite por jugador de campo hoy: {estado['config']['max_min_partido']} min."),
-                        ft.Text("• Al sonar la alarma, conmuta en Plantel los jugadores activos.")
+                        ft.Text(
+                            f"• Duración del tiempo: {estado['config']['minutos_por_tiempo']} min (se detiene solo)."),
+                        ft.Text(
+                            f"• Límite por jugador de campo hoy: {estado['config']['max_min_partido']} min (Excluye Arquero)."),
+                        ft.Text(
+                            f"• Alertas configuradas a los min: {estado['config']['alerta_min_1']}, {estado['config']['alerta_min_2']} y {estado['config']['alerta_min_3']}.")
                     ]), padding=12, bgcolor=ft.Colors.GREY_900, border_radius=8
                 )
             )
