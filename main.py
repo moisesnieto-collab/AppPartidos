@@ -1,5 +1,4 @@
 import flet as ft
-import flet_audio as fta
 import pandas as pd
 import os
 import asyncio
@@ -12,13 +11,6 @@ def main(page: ft.Page):
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-
-    # --- Reproductor de Sonido para Alertas ---
-    audio_alerta = fta.Audio(
-        src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3",
-        autoplay=False
-    )
-    page.overlay.append(audio_alerta)
 
     # --- Estado Global ---
     estado = {
@@ -126,7 +118,6 @@ def main(page: ft.Page):
     # --- MOTOR DEL RELOJ ---
     async def loop_reloj():
         contador_guardado = 0
-        alerta_reproducida = False
         while True:
             await asyncio.sleep(1)
             if estado["corriendo"]:
@@ -150,15 +141,6 @@ def main(page: ft.Page):
                     contador_guardado = 0
 
                 en_ventana_alerta = any(abs(seg - bloque) <= 10 for bloque in range(300, 3600, 300))
-
-                if (en_ventana_alerta or jugadores_excedidos) and not alerta_reproducida:
-                    try:
-                        audio_alerta.play()
-                    except:
-                        pass
-                    alerta_reproducida = True
-                elif not en_ventana_alerta and not jugadores_excedidos:
-                    alerta_reproducida = False
 
                 if jugadores_excedidos:
                     nombres_alertas = ", ".join(jugadores_excedidos)
@@ -467,8 +449,7 @@ def main(page: ft.Page):
                             ft.Text(nombre, weight=ft.FontWeight.BOLD, size=15),
                             ft.Container(
                                 content=ft.Text(puesto.upper(), size=9, weight=ft.FontWeight.BOLD),
-                                bgcolor=color_badge, padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                                border_radius=5
+                                bgcolor=color_badge, padding=4, border_radius=5
                             )
                         ], spacing=6),
                         ft.Text(texto_tiempo, color=subtexto_color, size=11,
@@ -476,7 +457,7 @@ def main(page: ft.Page):
                     ], expand=True, spacing=2),
                     switch_titular
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=ft.padding.symmetric(vertical=4)
+                padding=4
             )
 
             if es_titular:
@@ -657,7 +638,7 @@ def main(page: ft.Page):
         def confirmar_salida(ev):
             dlg_salir.open = False
             page.update()
-            page.launch_url("about:blank", web_window_name="_self")
+            page.window.destroy()
 
         def cancelar_salida(ev):
             dlg_salir.open = False
@@ -708,5 +689,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     puerto = int(os.environ.get("PORT", 8080))
-    # host="0.0.0.0" permite que el contenedor de Render exponga el puerto correctamente
     ft.app(target=main, host="0.0.0.0", port=puerto, view=ft.AppView.WEB_BROWSER)
