@@ -7,18 +7,24 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v2.2"
+    page.title = "Dunalastairs - Control de Cambios v2.6"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
 
-    # --- Reproductor de Sonido Web mediante flet-audio ---
+    # --- Reproductor de Sonido Web (FORMATO MP3 UNIVERSAL) ---
     audio_alerta = fta.Audio(
         src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3",
         autoplay=False
     )
     page.overlay.append(audio_alerta)
+
+    def reproducir_sonido():
+        try:
+            audio_alerta.play()
+        except Exception:
+            pass
 
     # --- Estado Global ---
     estado = {
@@ -126,12 +132,6 @@ def main(page: ft.Page):
     def formatear_tiempo(segs):
         return f"{segs // 60:02d}:{segs % 60:02d}"
 
-    def reproducir_sonido():
-        try:
-            audio_alerta.play()
-        except Exception:
-            pass
-
     # --- MOTOR DEL RELOJ ---
     async def loop_reloj():
         contador_guardado = 0
@@ -139,11 +139,15 @@ def main(page: ft.Page):
 
         while True:
             await asyncio.sleep(1)
+
+            # Limpiar set de alertas si el reloj se reseteó
+            if estado["segundos"] == 0:
+                alerta_sonada.clear()
+
             if estado["corriendo"]:
                 estado["segundos"] += 1
                 seg = estado["segundos"]
                 minuto_actual = seg // 60
-                segundo_modulo = seg % 60
                 texto_reloj.value = formatear_tiempo(seg)
 
                 # Detención automática al finalizar el tiempo
@@ -177,8 +181,10 @@ def main(page: ft.Page):
                     estado["config"]["alerta_min_3"]
                 ]
 
-                es_minuto_alerta = (minuto_actual in minutos_alerta) and (segundo_modulo < 10)
+                # Mantiene la alerta visual durante todo el minuto
+                es_minuto_alerta = (minuto_actual in minutos_alerta)
 
+                # Toca el sonido SOLO la primera vez que entra a ese minuto
                 if es_minuto_alerta and minuto_actual not in alerta_sonada:
                     reproducir_sonido()
                     alerta_sonada.add(minuto_actual)
@@ -210,6 +216,7 @@ def main(page: ft.Page):
     page.run_task(loop_reloj)
 
     def play_click(e):
+        # Este sonido inicial al darle Play desbloquea el audio en los celulares
         reproducir_sonido()
         estado["corriendo"] = True
         page.update()
@@ -404,7 +411,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v2.2", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Text("v2.6", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
