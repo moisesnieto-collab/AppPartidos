@@ -6,7 +6,7 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v1.1"
+    page.title = "Dunalastairs - Control de Cambios v1.2"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
@@ -351,9 +351,8 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v1.1", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                    bgcolor=ft.Colors.GREEN_700, padding=ft.padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=10
+                    content=ft.Text("v1.2", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(),
