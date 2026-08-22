@@ -1,6 +1,5 @@
 FROM python:3.10-slim
 
-# Instalar dependencias del sistema para Flet
 RUN apt-get update && apt-get install -y \
     libgstreamer1.0-0 \
     gstreamer1.0-plugins-base \
@@ -18,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+ENV PORT=8080
 EXPOSE 8080
 
 CMD ["python", "main.py"]

@@ -707,5 +707,6 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    puerto = int(os.environ.get("PORT", 8550))
-    ft.app(target=main, port=puerto, view=ft.AppView.WEB_BROWSER)
+    puerto = int(os.environ.get("PORT", 8080))
+    # host="0.0.0.0" permite que el contenedor de Render exponga el puerto correctamente
+    ft.app(target=main, host="0.0.0.0", port=puerto, view=ft.AppView.WEB_BROWSER)
