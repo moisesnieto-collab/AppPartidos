@@ -6,7 +6,7 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v3.0"
+    page.title = "Dunalastairs - Control de Cambios v3.1"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
@@ -128,14 +128,21 @@ def main(page: ft.Page):
             if estado["corriendo"]:
                 estado["segundos"] += 1
                 seg = estado["segundos"]
-                minuto_actual = seg // 60
+                minuto_absoluto = seg // 60
                 texto_reloj.value = formatear_tiempo(seg)
 
-                # Detención automática al finalizar el tiempo
                 duracion_tiempo_segs = estado["config"]["minutos_por_tiempo"] * 60
-                if seg >= duracion_tiempo_segs:
+
+                # Novedad: El minuto relativo dentro del tiempo actual (0 a 9)
+                # Así las alertas funcionan igual en el 1er y 2do tiempo.
+                minuto_relativo = (seg % duracion_tiempo_segs) // 60
+
+                # --- CORRECCIÓN BUG DETENCIÓN ---
+                # Solo se detiene EXACTAMENTE en los múltiplos del tiempo (ej: 10:00, 20:00)
+                if seg > 0 and seg % duracion_tiempo_segs == 0:
                     estado["corriendo"] = False
-                    texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO ({estado['config']['minutos_por_tiempo']} MIN)!"
+                    tiempo_terminado = seg // duracion_tiempo_segs
+                    texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO {tiempo_terminado}!"
                     texto_alerta_cambio.color = ft.Colors.AMBER_400
 
                 max_segs_partido = estado["config"]["max_min_partido"] * 60
@@ -162,7 +169,8 @@ def main(page: ft.Page):
                     estado["config"]["alerta_min_3"]
                 ]
 
-                es_minuto_alerta = (minuto_actual in minutos_alerta)
+                # Se gatilla evaluando el minuto dentro del tiempo actual
+                es_minuto_alerta = (minuto_relativo in minutos_alerta)
 
                 if jugadores_excedidos:
                     nombres_alertas = ", ".join(jugadores_excedidos)
@@ -173,7 +181,7 @@ def main(page: ft.Page):
                 if es_minuto_alerta or jugadores_excedidos:
                     texto_reloj.color = ft.Colors.RED_400
                     if es_minuto_alerta and not jugadores_excedidos:
-                        texto_alerta_cambio.value = f"🔔 ¡MINUTO {minuto_actual}! Evaluar cambios."
+                        texto_alerta_cambio.value = f"🔔 ¡MINUTO {minuto_absoluto}! Evaluar cambios."
                         texto_alerta_cambio.color = ft.Colors.RED_400
                 elif estado["corriendo"]:
                     texto_reloj.color = ft.Colors.BLUE_200
@@ -384,7 +392,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v3.0", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Text("v3.1", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -410,7 +418,7 @@ def main(page: ft.Page):
             texto_feedback
         ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
-    # --- PANTALLA 2: PLANTEL DIVIDIDO (ORDENADO DE MAYOR A MENOR) ---
+    # --- PANTALLA 2: PLANTEL DIVIDIDO ---
     def view_plantel():
         jugadores = obtener_datos_jugadores()
         max_titulares = estado["config"]["jugadores_en_cancha"]
