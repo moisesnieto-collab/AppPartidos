@@ -1,5 +1,4 @@
 import flet as ft
-import flet_audio as fta
 import pandas as pd
 import os
 import asyncio
@@ -7,26 +6,11 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v2.8"
+    page.title = "Dunalastairs - Control de Cambios v3.0"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-
-    # --- Reproductor de Sonido Web (MP3 Universal) ---
-    audio_alerta = fta.Audio(
-        src="https://www.soundjay.com/buttons/sounds/beep-07a.mp3",
-        autoplay=False
-    )
-    page.overlay.append(audio_alerta)
-
-    def reproducir_sonido():
-        try:
-            if audio_alerta.page:
-                audio_alerta.play()
-                audio_alerta.update()  # <-- LA CLAVE: Esto envía la orden real al navegador
-        except Exception:
-            pass
 
     # --- Estado Global ---
     estado = {
@@ -137,20 +121,14 @@ def main(page: ft.Page):
     # --- MOTOR DEL RELOJ ---
     async def loop_reloj():
         contador_guardado = 0
-        alerta_sonada = set()
 
         while True:
             await asyncio.sleep(1)
-
-            # Limpiar set de alertas si el reloj se reseteó a cero
-            if estado["segundos"] == 0:
-                alerta_sonada.clear()
 
             if estado["corriendo"]:
                 estado["segundos"] += 1
                 seg = estado["segundos"]
                 minuto_actual = seg // 60
-                segundo_modulo = seg % 60
                 texto_reloj.value = formatear_tiempo(seg)
 
                 # Detención automática al finalizar el tiempo
@@ -159,7 +137,6 @@ def main(page: ft.Page):
                     estado["corriendo"] = False
                     texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO ({estado['config']['minutos_por_tiempo']} MIN)!"
                     texto_alerta_cambio.color = ft.Colors.AMBER_400
-                    reproducir_sonido()
 
                 max_segs_partido = estado["config"]["max_min_partido"] * 60
                 jugadores_excedidos = []
@@ -169,6 +146,7 @@ def main(page: ft.Page):
                     estado["minutos_jugadores"][jugador] = estado["minutos_jugadores"].get(jugador, 0) + 1
                     estado["minutos_partido_actual"][jugador] = estado["minutos_partido_actual"].get(jugador, 0) + 1
 
+                    # Límite por partido excluye al arquero
                     puesto_j = jugadores_dict.get(jugador, "").lower()
                     if "arquero" not in puesto_j and estado["minutos_partido_actual"][jugador] >= max_segs_partido:
                         jugadores_excedidos.append(jugador)
@@ -184,13 +162,7 @@ def main(page: ft.Page):
                     estado["config"]["alerta_min_3"]
                 ]
 
-                # Mantiene la alerta visual durante todo el minuto
                 es_minuto_alerta = (minuto_actual in minutos_alerta)
-
-                # Toca el sonido SOLO la primera vez que entra a ese minuto
-                if es_minuto_alerta and minuto_actual not in alerta_sonada:
-                    reproducir_sonido()
-                    alerta_sonada.add(minuto_actual)
 
                 if jugadores_excedidos:
                     nombres_alertas = ", ".join(jugadores_excedidos)
@@ -219,8 +191,6 @@ def main(page: ft.Page):
     page.run_task(loop_reloj)
 
     def play_click(e):
-        # Este sonido inicial al darle Play desbloquea el contexto de audio en celulares
-        reproducir_sonido()
         estado["corriendo"] = True
         page.update()
 
@@ -414,7 +384,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v2.8", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Text("v3.0", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -440,7 +410,7 @@ def main(page: ft.Page):
             texto_feedback
         ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
-    # --- PANTALLA 2: PLANTEL DIVIDIDO ---
+    # --- PANTALLA 2: PLANTEL DIVIDIDO (ORDENADO DE MAYOR A MENOR) ---
     def view_plantel():
         jugadores = obtener_datos_jugadores()
         max_titulares = estado["config"]["jugadores_en_cancha"]
@@ -784,5 +754,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     puerto = int(os.environ.get("PORT", 8080))
-    # Desestima la advertencia amarilla en tu consola, la app funcionará sin problemas.
     ft.app(target=main, host="0.0.0.0", port=puerto, view=ft.AppView.WEB_BROWSER)
