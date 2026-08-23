@@ -7,22 +7,24 @@ import json
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v2.6"
+    page.title = "Dunalastairs - Control de Cambios v2.8"
     page.window.width = 400
     page.window.height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
 
-    # --- Reproductor de Sonido Web (FORMATO MP3 UNIVERSAL) ---
+    # --- Reproductor de Sonido Web (MP3 Universal) ---
     audio_alerta = fta.Audio(
-        src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3",
+        src="https://www.soundjay.com/buttons/sounds/beep-07a.mp3",
         autoplay=False
     )
     page.overlay.append(audio_alerta)
 
     def reproducir_sonido():
         try:
-            audio_alerta.play()
+            if audio_alerta.page:
+                audio_alerta.play()
+                audio_alerta.update()  # <-- LA CLAVE: Esto envía la orden real al navegador
         except Exception:
             pass
 
@@ -140,7 +142,7 @@ def main(page: ft.Page):
         while True:
             await asyncio.sleep(1)
 
-            # Limpiar set de alertas si el reloj se reseteó
+            # Limpiar set de alertas si el reloj se reseteó a cero
             if estado["segundos"] == 0:
                 alerta_sonada.clear()
 
@@ -148,6 +150,7 @@ def main(page: ft.Page):
                 estado["segundos"] += 1
                 seg = estado["segundos"]
                 minuto_actual = seg // 60
+                segundo_modulo = seg % 60
                 texto_reloj.value = formatear_tiempo(seg)
 
                 # Detención automática al finalizar el tiempo
@@ -216,7 +219,7 @@ def main(page: ft.Page):
     page.run_task(loop_reloj)
 
     def play_click(e):
-        # Este sonido inicial al darle Play desbloquea el audio en los celulares
+        # Este sonido inicial al darle Play desbloquea el contexto de audio en celulares
         reproducir_sonido()
         estado["corriendo"] = True
         page.update()
@@ -411,7 +414,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
                 ft.Container(
-                    content=ft.Text("v2.6", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Text("v2.8", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -781,4 +784,5 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     puerto = int(os.environ.get("PORT", 8080))
+    # Desestima la advertencia amarilla en tu consola, la app funcionará sin problemas.
     ft.app(target=main, host="0.0.0.0", port=puerto, view=ft.AppView.WEB_BROWSER)
