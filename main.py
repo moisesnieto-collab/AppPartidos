@@ -835,16 +835,16 @@ def main(page: ft.Page):
             contenedor_minutos.content = view_minutos()
         page.update()
 
-    # 1. Usar la barra de navegación nativa (Siempre visible abajo)
+    # 1. Usar la barra de navegación nativa (con el nombre correcto del componente)
     page.navigation_bar = ft.NavigationBar(
         selected_index=0,
         bgcolor=ft.Colors.GREY_900,
         on_change=cambiar_pantalla,
         destinations=[
-            ft.NavigationDestination(icon=ft.Icons.SETTINGS, label="Config"),
-            ft.NavigationDestination(icon=ft.Icons.PEOPLE, label="Plantel"),
-            ft.NavigationDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
-            ft.NavigationDestination(icon=ft.Icons.BAR_CHART, label="Ranking"),
+            ft.NavigationBarDestination(icon=ft.Icons.SETTINGS, label="Config"),
+            ft.NavigationBarDestination(icon=ft.Icons.PEOPLE, label="Plantel"),
+            ft.NavigationBarDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
+            ft.NavigationBarDestination(icon=ft.Icons.BAR_CHART, label="Ranking"),
         ]
     )
 
