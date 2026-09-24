@@ -477,7 +477,14 @@ def main(page: ft.Page):
                         ft.Row([tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha]),
                         ft.Row([
                             ft.ElevatedButton("Guardar en BD", icon=ft.Icons.SAVE, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=crear_partido_click),
-                            ft.OutlinedButton("Resetear BD", icon=ft.Icons.DELETE_FOREVER, icon_color=COLOR_ROJO, border_color=COLOR_ROJO, on_click=confirmar_reset),
+                            # ✅ LÍNEA CORREGIDA:
+                            ft.OutlinedButton(
+                                "Resetear BD",
+                                icon=ft.Icons.DELETE_FOREVER,
+                                icon_color=COLOR_ROJO,
+                                style=ft.ButtonStyle(color=COLOR_ROJO, side=ft.BorderSide(1, COLOR_ROJO)),
+                                on_click=confirmar_reset
+                            )
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         texto_feedback,
                     ], spacing=8),
@@ -623,15 +630,18 @@ def main(page: ft.Page):
                             ft.Column(
                                 [
                                     ft.Text("Dunalastair", weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO),
-                                    ft.Text(f"{estado['goles_local']}", size=42, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                                    ft.Text(f"{estado['goles_local']}", size=42, weight=ft.FontWeight.BOLD,
+                                            color=COLOR_CELESTE),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
                             ),
                             ft.Text("VS", size=18, weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO),
                             ft.Column(
                                 [
-                                    ft.Text(nombre_rival, weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO, overflow=ft.TextOverflow.ELLIPSIS),
-                                    ft.Text(f"{estado['goles_rival']}", size=42, weight=ft.FontWeight.BOLD, color=COLOR_ROJO),
+                                    ft.Text(nombre_rival, weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO,
+                                            overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text(f"{estado['goles_rival']}", size=42, weight=ft.FontWeight.BOLD,
+                                            color=COLOR_ROJO),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
                             ),
@@ -644,20 +654,22 @@ def main(page: ft.Page):
             bgcolor=COLOR_TARJETA, padding=14, border_radius=14, border=ft.border.all(1, COLOR_BORDE),
         )
 
-        dd_evento = ft.Dropdown(label="Evento", options=[ft.dropdown.Option(ev) for ev in EVENTOS_DEFECTO], expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        dd_evento = ft.Dropdown(label="Evento", options=[ft.dropdown.Option(ev) for ev in EVENTOS_DEFECTO],
+                                expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE,
+                                border_radius=10)
         opciones_titulares = [ft.dropdown.Option(nom) for nom in estado["titulares_seleccionados"]]
-        dd_jugador_titular = ft.Dropdown(label="Jugador Titular", options=opciones_titulares, expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        dd_jugador_titular = ft.Dropdown(label="Jugador Titular", options=opciones_titulares, expand=True,
+                                         border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE,
+                                         border_radius=10)
 
-        suplentes_actuales = [j["nombre"] for j in jugadores if j["nombre"] not in estado["titulares_seleccionados"]]
-        dd_suplente_entra = ft.Dropdown(label="Entra (Suplente)", options=[ft.dropdown.Option(nom) for nom in suplentes_actuales], expand=True, visible=False, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        suplentes_actuales = [j["nombre"] for j in jugadores if
+                              j["nombre"] not in estado["titulares_seleccionados"]]
+        dd_suplente_entra = ft.Dropdown(label="Entra (Suplente)",
+                                        options=[ft.dropdown.Option(nom) for nom in suplentes_actuales],
+                                        expand=True, visible=False, border_color=COLOR_BORDE,
+                                        focused_border_color=COLOR_CELESTE, border_radius=10)
 
-        lista_eventos_ui = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
         texto_status_evento = ft.Text("", color=COLOR_VERDE, size=12)
-
-        for ev in reversed(estado["eventos_registrados"]):
-            lista_eventos_ui.controls.append(
-                ft.Text(f"• [{ev['minuto']}] {ev['evento']}: {ev['jugador']}", size=12, color=COLOR_SUBTEXTO)
-            )
 
         def al_cambiar_dropdown_evento(e):
             if dd_evento.value == "Gol":
@@ -696,7 +708,8 @@ def main(page: ft.Page):
                     estado["goles_local"] += 1
                     desc_evento = f"Gol de {jugador_sel}"
 
-                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": "Gol", "jugador": desc_evento})
+                estado["eventos_registrados"].append(
+                    {"minuto": minuto_actual, "evento": "Gol", "jugador": desc_evento})
 
             elif tipo_evento == "Cambio":
                 jugador_entra = dd_suplente_entra.value
@@ -712,14 +725,113 @@ def main(page: ft.Page):
                     estado["titulares_seleccionados"].append(jugador_entra)
 
                 desc_evento = f"Sale {jugador_sel} ➔ Entra {jugador_entra}"
-                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": "Cambio", "jugador": desc_evento})
+                estado["eventos_registrados"].append(
+                    {"minuto": minuto_actual, "evento": "Cambio", "jugador": desc_evento})
 
             else:
-                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": tipo_evento, "jugador": jugador_sel})
+                estado["eventos_registrados"].append(
+                    {"minuto": minuto_actual, "evento": tipo_evento, "jugador": jugador_sel})
 
             guardar_estado_partido_activo()
             contenedor_partido.content = view_partido()
             page.update()
+
+        # --- LÓGICA Y DISEÑO DEL HISTORIAL DE EVENTOS REDISEÑADO ---
+        def obtener_estilo_evento(tipo):
+            if "Gol" in tipo:
+                return ft.Icons.SPORTS_SOCCER, COLOR_VERDE
+            elif "Tarjeta Amarilla" in tipo:
+                return ft.Icons.STYLE, COLOR_AMBAR
+            elif "Tarjeta Roja" in tipo:
+                return ft.Icons.STYLE, COLOR_ROJO
+            elif "Cambio" in tipo:
+                return ft.Icons.SWAP_HORIZ, COLOR_CELESTE
+            elif "Asistencia" in tipo:
+                return ft.Icons.HANDSHAKE, COLOR_CELESTE
+            return ft.Icons.INFO_OUTLINE, COLOR_SUBTEXTO
+
+        def eliminar_evento(idx_real):
+            ev_eliminado = estado["eventos_registrados"].pop(idx_real)
+            # Si se elimina un gol, descontarlo del marcador automáticamente
+            if ev_eliminado.get("evento") == "Gol":
+                if "Gol de " + estado['config']['equipo_rival'] in ev_eliminado.get("jugador", ""):
+                    estado["goles_rival"] = max(0, estado["goles_rival"] - 1)
+                else:
+                    estado["goles_local"] = max(0, estado["goles_local"] - 1)
+
+            guardar_estado_partido_activo()
+            contenedor_partido.content = view_partido()
+            page.update()
+
+        lista_eventos_ui = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO)
+        total_eventos = len(estado["eventos_registrados"])
+
+        if total_eventos == 0:
+            lista_eventos_ui.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Icon(ft.Icons.HISTORY_TOGGLE_OFF, color=COLOR_SUBTEXTO, size=28),
+                            ft.Text("Aún no hay eventos en este partido", color=COLOR_SUBTEXTO, size=12),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=4,
+                    ),
+                    padding=15,
+                    alignment=ft.Alignment(0, 0),
+                )
+            )
+        else:
+            for idx_inverso, ev in enumerate(reversed(estado["eventos_registrados"])):
+                idx_real = total_eventos - 1 - idx_inverso
+                icono, color_evento = obtener_estilo_evento(ev["evento"])
+
+                def crear_handler_eliminar(i):
+                    return lambda e: eliminar_evento(i)
+
+                tarjeta_ev = ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(f"{ev['minuto']}", size=11, weight=ft.FontWeight.BOLD,
+                                                color=COLOR_TEXTO),
+                                bgcolor=COLOR_CELESTE_BOTON,
+                                padding=ft.Padding(6, 3, 6, 3),
+                                border_radius=8,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Icon(icono, color=color_evento, size=18),
+                                    ft.Column(
+                                        [
+                                            ft.Text(ev["jugador"], size=12, weight=ft.FontWeight.BOLD,
+                                                    color=COLOR_TEXTO, overflow=ft.TextOverflow.ELLIPSIS),
+                                            ft.Text(ev["evento"], size=10, color=color_evento,
+                                                    weight=ft.FontWeight.W_500),
+                                        ],
+                                        spacing=1,
+                                        expand=True,
+                                    ),
+                                ],
+                                expand=True,
+                                spacing=8,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=14,
+                                icon_color=COLOR_SUBTEXTO,
+                                tooltip="Eliminar evento",
+                                on_click=crear_handler_eliminar(idx_real),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    bgcolor=COLOR_FONDO,
+                    padding=ft.Padding(8, 4, 4, 4),
+                    border_radius=10,
+                    border=ft.border.all(1, COLOR_BORDE),
+                )
+                lista_eventos_ui.controls.append(tarjeta_ev)
 
         return ft.Column(
             [
@@ -729,9 +841,16 @@ def main(page: ft.Page):
                 ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0)),
                 ft.Row(
                     [
-                        ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=36, icon_color=COLOR_VERDE, bgcolor=COLOR_BORDE, on_click=lambda e: setattr(estado, "corriendo", True)),
-                        ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=36, icon_color=COLOR_AMBAR, bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False), guardar_estado_partido_activo())),
-                        ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=36, icon_color=COLOR_ROJO, bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False), estado.update({"segundos": 0}), guardar_estado_partido_activo(), page.update())),
+                        ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=36, icon_color=COLOR_VERDE,
+                                      bgcolor=COLOR_BORDE, on_click=lambda e: setattr(estado, "corriendo", True)),
+                        ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=36, icon_color=COLOR_AMBAR,
+                                      bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False),
+                                                                               guardar_estado_partido_activo())),
+                        ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=36, icon_color=COLOR_ROJO,
+                                      bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False),
+                                                                               estado.update({"segundos": 0}),
+                                                                               guardar_estado_partido_activo(),
+                                                                               page.update())),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
                 ),
@@ -739,10 +858,24 @@ def main(page: ft.Page):
                 ft.Text("📝 Nuevo Evento", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                 ft.Row([dd_evento, dd_jugador_titular]),
                 dd_suplente_entra,
-                ft.ElevatedButton("Registrar Evento", icon=ft.Icons.ADD_TASK, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=registrar_evento_click),
+                ft.ElevatedButton("Registrar Evento", icon=ft.Icons.ADD_TASK, bgcolor=COLOR_CELESTE_BOTON,
+                                  color=COLOR_TEXTO, on_click=registrar_evento_click),
                 texto_status_evento,
-                ft.Text("Historial de Eventos:", size=12, weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO),
-                ft.Container(content=lista_eventos_ui, bgcolor=COLOR_TARJETA, padding=10, border_radius=12, border=ft.border.all(1, COLOR_BORDE), height=110),
+                ft.Row(
+                    [
+                        ft.Text("Historial de Eventos", size=13, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                        ft.Text(f"{total_eventos} registrados", size=11, color=COLOR_SUBTEXTO),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Container(
+                    content=lista_eventos_ui,
+                    bgcolor=COLOR_TARJETA,
+                    padding=8,
+                    border_radius=12,
+                    border=ft.border.all(1, COLOR_BORDE),
+                    height=180,
+                ),
             ],
             scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True, spacing=6,
         )
