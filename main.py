@@ -6,6 +6,18 @@ import sqlite3
 import flet as ft
 import pandas as pd
 
+# --- PALETA DE COLORES MODERNA (CELESTE Y PLOMO SLATE) ---
+COLOR_FONDO = "#0F172A"         # Plomo Slate Oscuro
+COLOR_TARJETA = "#1E293B"       # Plomo Slate Medio
+COLOR_BORDE = "#334155"         # Plomo Slate Claro
+COLOR_CELESTE = "#38BDF8"       # Celeste Neón / Sky 400
+COLOR_CELESTE_BOTON = "#0284C7" # Celeste Intenso / Sky 600
+COLOR_TEXTO = "#F8FAFC"         # Blanco Puro
+COLOR_SUBTEXTO = "#94A3B8"      # Gris Plata
+COLOR_VERDE = "#4ADE80"         # Verde Éxito
+COLOR_ROJO = "#F87171"          # Rojo Alerta
+COLOR_AMBAR = "#FBBF24"         # Ámbar Advertencia
+
 # --- CONFIGURACIÓN DE BASE DE DATOS SQLITE ---
 DB_PATH = "partidos_dunalastair.db"
 
@@ -37,7 +49,6 @@ def inicializar_bd():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Tabla de Jugadores (Plantel)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS jugadores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +58,6 @@ def inicializar_bd():
         )
     """)
 
-    # Tabla de Partidos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS partidos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +75,6 @@ def inicializar_bd():
         )
     """)
 
-    # Si la tabla de jugadores está vacía, insertamos la plantilla inicial
     cursor.execute("SELECT COUNT(*) FROM jugadores")
     if cursor.fetchone()[0] == 0:
         for j in DATOS_INICIALES:
@@ -81,11 +90,10 @@ def inicializar_bd():
 def main(page: ft.Page):
     inicializar_bd()
 
-    page.title = "Dunalastair - Control de Cambios BD Total"
-    page.window_width = 400
-    page.window_height = 800
+    page.title = "Dunalastair FC - Control de Partidos"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
+    page.bgcolor = COLOR_FONDO
 
     # --- ESTADO DE LA APLICACIÓN ---
     estado = {
@@ -107,7 +115,7 @@ def main(page: ft.Page):
         },
     }
 
-    # --- CONSULTAS Y OPERACIONES EN BASE DE DATOS ---
+    # --- CONSULTAS BD ---
 
     def obtener_jugadores_bd():
         conn = sqlite3.connect(DB_PATH)
@@ -231,7 +239,6 @@ def main(page: ft.Page):
         cargar_partidos_bd()
 
     def obtener_minutos_totales_bd():
-        """Calcula el acumulado global de segundos por jugador directamente leyendo la BD."""
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT minutos_partido FROM partidos")
@@ -261,12 +268,11 @@ def main(page: ft.Page):
             "fecha": partido["fecha"],
         }
 
-    # Cargar datos desde SQLite al arrancar
     cargar_partidos_bd()
 
-    # --- COMPONENTES VISUALES Y BUCLE ---
-    texto_reloj = ft.Text("00:00", size=55, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200)
-    texto_alerta_cambio = ft.Text("Partido listo", weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400)
+    # --- COMPONENTES VISUALES ---
+    texto_reloj = ft.Text("00:00", size=50, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)
+    texto_alerta_cambio = ft.Text("Partido listo", weight=ft.FontWeight.W_600, color=COLOR_SUBTEXTO)
 
     def formatear_tiempo(segs):
         return f"{segs // 60:02d}:{segs % 60:02d}"
@@ -286,16 +292,15 @@ def main(page: ft.Page):
                     estado["corriendo"] = False
                     tiempo_terminado = seg // duracion_tiempo_segs
                     texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO {tiempo_terminado}!"
-                    texto_alerta_cambio.color = ft.Colors.AMBER_400
+                    texto_alerta_cambio.color = COLOR_AMBAR
 
-                # Sumar tiempo solo a los titulares seleccionados en cancha
                 for jugador in estado["titulares_seleccionados"]:
                     estado["minutos_partido_actual"][jugador] = (
                         estado["minutos_partido_actual"].get(jugador, 0) + 1
                     )
 
                 contador_guardado += 1
-                if contador_guardado >= 5:  # Guardar en SQLite cada 5 segundos
+                if contador_guardado >= 5:
                     guardar_estado_partido_activo()
                     contador_guardado = 0
 
@@ -306,19 +311,19 @@ def main(page: ft.Page):
 
     page.run_task(loop_reloj)
 
-    # --- PANTALLA 1: CONFIGURACIÓN Y HISTORIAL BD ---
+    # --- PANTALLA 1: CONFIGURACIÓN ---
     def view_configuracion():
         tf_fecha = ft.TextField(
             label="Fecha (AAAA-MM-DD)",
             value=datetime.now().strftime("%Y-%m-%d"),
-            width=150,
+            width=150, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10
         )
-        tf_rival = ft.TextField(label="Equipo Rival", value="Rival FC", expand=True)
-        tf_tiempos = ft.TextField(label="Tiempos", value="2", keyboard_type=ft.KeyboardType.NUMBER, width=90)
-        tf_minutos_tiempo = ft.TextField(label="Min/Tiempo", value="10", keyboard_type=ft.KeyboardType.NUMBER, width=100)
-        tf_jugadores_cancha = ft.TextField(label="Cancha", value="7", keyboard_type=ft.KeyboardType.NUMBER, width=90)
+        tf_rival = ft.TextField(label="Equipo Rival", value="Rival FC", expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        tf_tiempos = ft.TextField(label="Tiempos", value="2", keyboard_type=ft.KeyboardType.NUMBER, width=90, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        tf_minutos_tiempo = ft.TextField(label="Min/Tiempo", value="10", keyboard_type=ft.KeyboardType.NUMBER, width=100, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        tf_jugadores_cancha = ft.TextField(label="Cancha", value="7", keyboard_type=ft.KeyboardType.NUMBER, width=90, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
 
-        texto_feedback = ft.Text("", color=ft.Colors.GREEN_400, size=12)
+        texto_feedback = ft.Text("", color=COLOR_VERDE, size=12)
 
         def crear_partido_click(e):
             try:
@@ -327,7 +332,7 @@ def main(page: ft.Page):
 
                 if not rival or not fecha_val:
                     texto_feedback.value = "⚠️ Ingresa fecha y nombre del rival."
-                    texto_feedback.color = ft.Colors.RED_400
+                    texto_feedback.color = COLOR_ROJO
                     page.update()
                     return
 
@@ -345,13 +350,13 @@ def main(page: ft.Page):
                         activar_partido_memoria(p)
                         break
 
-                texto_feedback.value = f"✅ Partido vs '{rival}' registrado en BD ({fecha_val})."
-                texto_feedback.color = ft.Colors.GREEN_400
+                texto_feedback.value = f"✅ Partido vs '{rival}' registrado en BD."
+                texto_feedback.color = COLOR_VERDE
                 contenedor_config.content = view_configuracion()
                 page.update()
             except ValueError:
                 texto_feedback.value = "❌ Ingresa números válidos."
-                texto_feedback.color = ft.Colors.RED_400
+                texto_feedback.color = COLOR_ROJO
                 page.update()
 
         def seleccionar_partido(partido):
@@ -377,24 +382,24 @@ def main(page: ft.Page):
                 reiniciar_base_datos()
                 texto_reloj.value = "00:00"
                 texto_alerta_cambio.value = "BD Reiniciada"
-                texto_feedback.value = "🔄 Toda la BD fue restablecida."
+                texto_feedback.value = "🔄 Base de datos restablecida."
                 dialogo_reset.open = False
                 contenedor_config.content = view_configuracion()
                 page.update()
 
             dialogo_reset = ft.AlertDialog(
-                title=ft.Text("¿Borrar Base de Datos?"),
-                content=ft.Text("Se eliminarán todos los partidos y estadísticas registradas."),
+                title=ft.Text("¿Borrar Base de Datos?", color=COLOR_TEXTO),
+                content=ft.Text("Se eliminarán todos los partidos y estadísticas."),
                 actions=[
                     ft.TextButton("Cancelar", on_click=cerrar_dlg),
-                    ft.ElevatedButton("Borrar BD", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=procesar_reset),
+                    ft.ElevatedButton("Borrar BD", bgcolor=COLOR_ROJO, color=COLOR_TEXTO, on_click=procesar_reset),
                 ],
+                bgcolor=COLOR_TARJETA
             )
             page.overlay.append(dialogo_reset)
             dialogo_reset.open = True
             page.update()
 
-        # Agrupar partidos por fecha
         partidos_por_fecha = {}
         for p in estado["partidos"]:
             f = p["fecha"]
@@ -403,7 +408,7 @@ def main(page: ft.Page):
         partidos_ui_grupos = []
         for fecha_grupo, partidos_lista in partidos_por_fecha.items():
             partidos_ui_grupos.append(
-                ft.Text(f"📅 {fecha_grupo}", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400, size=13)
+                ft.Text(f"📅 {fecha_grupo}", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE, size=13)
             )
             for p in partidos_lista:
                 es_activo = p["id"] == estado["partido_activo_id"]
@@ -419,20 +424,20 @@ def main(page: ft.Page):
                         [
                             ft.Row(
                                 [
-                                    ft.Text(f"vs {p['equipo_rival']}", weight=ft.FontWeight.BOLD, size=15),
-                                    ft.Text(f"Goles: {p['goles_local']} - {p['goles_rival']}", color=ft.Colors.GREEN_300, weight=ft.FontWeight.BOLD),
+                                    ft.Text(f"vs {p['equipo_rival']}", weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO),
+                                    ft.Text(f"Goles: {p['goles_local']} - {p['goles_rival']}", color=COLOR_VERDE, weight=ft.FontWeight.BOLD),
                                     ft.Container(
-                                        content=ft.Text("ACTIVO", size=10, weight=ft.FontWeight.BOLD),
-                                        bgcolor=ft.Colors.GREEN_700,
-                                        padding=ft.Padding(5, 2, 5, 2),
-                                        border_radius=5,
+                                        content=ft.Text("ACTIVO", size=10, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                                        bgcolor=COLOR_CELESTE_BOTON,
+                                        padding=ft.Padding(8, 3, 8, 3),
+                                        border_radius=10,
                                     ) if es_activo else ft.Container(),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             ),
                             ft.Text(
                                 f"{p['tiempos_por_partido']} Tiempos | {p['minutos_por_tiempo']} min/tiempo | Max {p['jugadores_en_cancha']} en cancha",
-                                size=11, color=ft.Colors.GREY_400,
+                                size=11, color=COLOR_SUBTEXTO,
                             ),
                             ft.Row(
                                 [
@@ -440,59 +445,59 @@ def main(page: ft.Page):
                                         "Seleccionar" if not es_activo else "En Juego",
                                         icon=ft.Icons.CHECK_CIRCLE if es_activo else ft.Icons.PLAY_ARROW,
                                         disabled=es_activo,
+                                        bgcolor=COLOR_CELESTE_BOTON if not es_activo else COLOR_BORDE,
+                                        color=COLOR_TEXTO,
                                         on_click=crear_handler_select(p),
                                     ),
                                     ft.IconButton(
-                                        icon=ft.Icons.DELETE,
-                                        icon_color=ft.Colors.RED_400,
+                                        icon=ft.Icons.DELETE_OUTLINED,
+                                        icon_color=COLOR_ROJO,
                                         on_click=crear_handler_delete(p["id"]),
                                     ),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             ),
                         ],
-                        spacing=4,
+                        spacing=6,
                     ),
-                    padding=10,
-                    bgcolor=ft.Colors.GREY_900,
-                    border_radius=8,
-                    border=ft.border.all(1, ft.Colors.GREEN_400) if es_activo else None,
+                    padding=12,
+                    bgcolor=COLOR_TARJETA,
+                    border_radius=12,
+                    border=ft.border.all(1.5, COLOR_CELESTE if es_activo else COLOR_BORDE),
                 )
                 partidos_ui_grupos.append(tarjeta)
 
         return ft.Column(
             [
-                ft.Row([
-                    ft.Text("⚙️ Configuración", size=20, weight=ft.FontWeight.BOLD),
-                    ft.Container(
-                        content=ft.Text("BD SQLite Conectada", size=10, color=ft.Colors.WHITE),
-                        bgcolor=ft.Colors.BLUE_800, padding=ft.Padding(6, 3, 6, 3), border_radius=8
-                    )
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(height=5),
-                ft.Text("1. Nuevo Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-                ft.Row([tf_fecha, tf_rival]),
-                ft.Row([tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha]),
-                ft.Row([
-                    ft.ElevatedButton("Guardar en BD", icon=ft.Icons.SAVE, on_click=crear_partido_click),
-                    ft.OutlinedButton("Resetear BD", icon=ft.Icons.DELETE_FOREVER, icon_color=ft.Colors.RED_400, on_click=confirmar_reset),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                texto_feedback,
-                ft.Divider(height=10),
-                ft.Text("2. Historial de Partidos en BD", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-                ft.Column(controls=partidos_ui_grupos, spacing=8, scroll=ft.ScrollMode.AUTO),
+                ft.Text("⚙️ Configuración", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("1. Nuevo Partido", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                        ft.Row([tf_fecha, tf_rival]),
+                        ft.Row([tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha]),
+                        ft.Row([
+                            ft.ElevatedButton("Guardar en BD", icon=ft.Icons.SAVE, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=crear_partido_click),
+                            ft.OutlinedButton("Resetear BD", icon=ft.Icons.DELETE_FOREVER, icon_color=COLOR_ROJO, border_color=COLOR_ROJO, on_click=confirmar_reset),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        texto_feedback,
+                    ], spacing=8),
+                    padding=14, bgcolor=COLOR_TARJETA, border_radius=14, border=ft.border.all(1, COLOR_BORDE)
+                ),
+                ft.Divider(height=10, color=COLOR_BORDE),
+                ft.Text("2. Historial de Partidos", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                ft.Column(controls=partidos_ui_grupos, spacing=10, scroll=ft.ScrollMode.AUTO),
             ],
-            spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+            spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
         )
 
-    # --- PANTALLA 2: PLANTEL Y JUGADORES ---
+    # --- PANTALLA 2: PLANTEL ---
     def view_plantel():
         jugadores = obtener_jugadores_bd()
         max_titulares = estado["config"]["jugadores_en_cancha"]
 
-        tf_nuevo_num = ft.TextField(label="N°", width=60)
-        tf_nuevo_nom = ft.TextField(label="Nombre Jugador", expand=True)
-        tf_nuevo_puesto = ft.TextField(label="Puesto", width=110)
+        tf_nuevo_num = ft.TextField(label="N°", width=60, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        tf_nuevo_nom = ft.TextField(label="Nombre Jugador", expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
+        tf_nuevo_puesto = ft.TextField(label="Puesto", width=110, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
         texto_status_jugador = ft.Text("", size=11)
 
         def click_agregar_jugador(e):
@@ -503,12 +508,12 @@ def main(page: ft.Page):
                     tf_nuevo_puesto.value.strip() or "Jugador",
                 )
                 if res:
-                    texto_status_jugador.value = "✅ Jugador agregado a la BD."
-                    texto_status_jugador.color = ft.Colors.GREEN_400
+                    texto_status_jugador.value = "✅ Agregado a la BD."
+                    texto_status_jugador.color = COLOR_VERDE
                     contenedor_plantel.content = view_plantel()
                 else:
-                    texto_status_jugador.value = "⚠️ El jugador ya existe."
-                    texto_status_jugador.color = ft.Colors.RED_400
+                    texto_status_jugador.value = "⚠️ Ya existe el jugador."
+                    texto_status_jugador.color = COLOR_ROJO
                 page.update()
 
         titulares_ui, suplentes_ui = [], []
@@ -541,19 +546,19 @@ def main(page: ft.Page):
 
                 return on_change
 
-            switch_titular = ft.Switch(value=es_titular, on_change=crear_on_change(nombre))
+            switch_titular = ft.Switch(value=es_titular, active_color=COLOR_CELESTE, on_change=crear_on_change(nombre))
 
             fila = ft.Container(
                 content=ft.Row(
                     [
                         ft.Container(
-                            content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.BLUE_200),
-                            bgcolor=ft.Colors.GREY_800, padding=6, border_radius=8,
+                            content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=COLOR_CELESTE),
+                            bgcolor=COLOR_BORDE, padding=6, border_radius=8,
                         ),
                         ft.Column(
                             [
-                                ft.Text(nombre, weight=ft.FontWeight.BOLD, size=14),
-                                ft.Text(f"{puesto} | {mins_hoy} min hoy", size=11, color=ft.Colors.GREY_400),
+                                ft.Text(nombre, weight=ft.FontWeight.BOLD, size=13, color=COLOR_TEXTO),
+                                ft.Text(f"{puesto} | {mins_hoy} min hoy", size=11, color=COLOR_SUBTEXTO),
                             ],
                             expand=True, spacing=1,
                         ),
@@ -561,7 +566,7 @@ def main(page: ft.Page):
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                padding=2,
+                padding=4,
             )
 
             if es_titular:
@@ -571,28 +576,37 @@ def main(page: ft.Page):
 
         return ft.Column(
             [
-                ft.Text("📋 Plantel (SQLite)", size=20, weight=ft.FontWeight.BOLD),
-                ft.Text(
-                    f"Titulares en cancha: {len(estado['titulares_seleccionados'])} / {max_titulares}",
-                    color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD,
+                ft.Text("📋 Plantel de Jugadores", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Titulares en cancha:", color=COLOR_TEXTO, weight=ft.FontWeight.W_500),
+                        ft.Container(
+                            content=ft.Text(f"{len(estado['titulares_seleccionados'])} / {max_titulares}", color=COLOR_TEXTO, weight=ft.FontWeight.BOLD),
+                            bgcolor=COLOR_CELESTE_BOTON, padding=ft.Padding(10, 4, 10, 4), border_radius=12
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    padding=12, bgcolor=COLOR_TARJETA, border_radius=12, border=ft.border.all(1, COLOR_BORDE)
                 ),
-                ft.Divider(height=5),
-                ft.Text("Agregar Jugador a la BD", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-                ft.Row([tf_nuevo_num, tf_nuevo_nom, tf_nuevo_puesto]),
-                ft.Row([
-                    ft.ElevatedButton("Agregar", icon=ft.Icons.PERSON_ADD, on_click=click_agregar_jugador),
-                    texto_status_jugador
-                ]),
-                ft.Divider(height=10),
-                ft.Text(f"🟢 TITULARES EN CANCHA ({len(titulares_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
-                ft.Container(content=ft.Column(controls=titulares_ui or [ft.Text("Sin titulares", color=ft.Colors.GREY_500)]), bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8),
-                ft.Text(f"🟡 BANCA / SUPLENTES ({len(suplentes_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
-                ft.Container(content=ft.Column(controls=suplentes_ui or [ft.Text("Sin suplentes", color=ft.Colors.GREY_500)]), bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Nuevo Jugador", size=12, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                        ft.Row([tf_nuevo_num, tf_nuevo_nom, tf_nuevo_puesto]),
+                        ft.Row([
+                            ft.ElevatedButton("Agregar", icon=ft.Icons.PERSON_ADD, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=click_agregar_jugador),
+                            texto_status_jugador
+                        ]),
+                    ], spacing=6),
+                    padding=12, bgcolor=COLOR_TARJETA, border_radius=12, border=ft.border.all(1, COLOR_BORDE)
+                ),
+                ft.Text(f"🟢 TITULARES EN CANCHA ({len(titulares_ui)})", weight=ft.FontWeight.BOLD, color=COLOR_VERDE, size=12),
+                ft.Container(content=ft.Column(controls=titulares_ui or [ft.Text("Sin titulares", color=COLOR_SUBTEXTO)]), bgcolor=COLOR_TARJETA, padding=8, border_radius=12, border=ft.border.all(1, COLOR_VERDE)),
+                ft.Text(f"🟡 BANCA / SUPLENTES ({len(suplentes_ui)})", weight=ft.FontWeight.BOLD, color=COLOR_AMBAR, size=12),
+                ft.Container(content=ft.Column(controls=suplentes_ui or [ft.Text("Sin suplentes", color=COLOR_SUBTEXTO)]), bgcolor=COLOR_TARJETA, padding=8, border_radius=12, border=ft.border.all(1, COLOR_BORDE)),
             ],
-            scroll=ft.ScrollMode.AUTO, expand=True, spacing=6
+            scroll=ft.ScrollMode.AUTO, expand=True, spacing=8
         )
 
-    # --- PANTALLA 3: PARTIDO EN VIVO Y EVENTOS ---
+    # --- PANTALLA 3: PARTIDO EN VIVO ---
     def view_partido():
         texto_reloj.value = formatear_tiempo(estado["segundos"])
         jugadores = obtener_jugadores_bd()
@@ -603,21 +617,21 @@ def main(page: ft.Page):
         marcador_ui = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(f"📅 Partido: {fecha_partido}", size=12, color=ft.Colors.GREY_400),
+                    ft.Text(f"📅 {fecha_partido}", size=11, color=COLOR_SUBTEXTO),
                     ft.Row(
                         [
                             ft.Column(
                                 [
-                                    ft.Text("Dunalastair", weight=ft.FontWeight.BOLD, size=14),
-                                    ft.Text(f"{estado['goles_local']}", size=36, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
+                                    ft.Text("Dunalastair", weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO),
+                                    ft.Text(f"{estado['goles_local']}", size=42, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
                             ),
-                            ft.Text("-", size=30, weight=ft.FontWeight.BOLD),
+                            ft.Text("VS", size=18, weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO),
                             ft.Column(
                                 [
-                                    ft.Text(nombre_rival, weight=ft.FontWeight.BOLD, size=14, overflow=ft.TextOverflow.ELLIPSIS),
-                                    ft.Text(f"{estado['goles_rival']}", size=36, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400),
+                                    ft.Text(nombre_rival, weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text(f"{estado['goles_rival']}", size=42, weight=ft.FontWeight.BOLD, color=COLOR_ROJO),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
                             ),
@@ -627,22 +641,22 @@ def main(page: ft.Page):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            bgcolor=ft.Colors.GREY_900, padding=8, border_radius=10,
+            bgcolor=COLOR_TARJETA, padding=14, border_radius=14, border=ft.border.all(1, COLOR_BORDE),
         )
 
-        dd_evento = ft.Dropdown(label="Evento", options=[ft.dropdown.Option(ev) for ev in EVENTOS_DEFECTO], expand=True)
+        dd_evento = ft.Dropdown(label="Evento", options=[ft.dropdown.Option(ev) for ev in EVENTOS_DEFECTO], expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
         opciones_titulares = [ft.dropdown.Option(nom) for nom in estado["titulares_seleccionados"]]
-        dd_jugador_titular = ft.Dropdown(label="Jugador Titular", options=opciones_titulares, expand=True)
+        dd_jugador_titular = ft.Dropdown(label="Jugador Titular", options=opciones_titulares, expand=True, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
 
         suplentes_actuales = [j["nombre"] for j in jugadores if j["nombre"] not in estado["titulares_seleccionados"]]
-        dd_suplente_entra = ft.Dropdown(label="Entra (Suplente)", options=[ft.dropdown.Option(nom) for nom in suplentes_actuales], expand=True, visible=False)
+        dd_suplente_entra = ft.Dropdown(label="Entra (Suplente)", options=[ft.dropdown.Option(nom) for nom in suplentes_actuales], expand=True, visible=False, border_color=COLOR_BORDE, focused_border_color=COLOR_CELESTE, border_radius=10)
 
         lista_eventos_ui = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
-        texto_status_evento = ft.Text("", color=ft.Colors.GREEN_400, size=12)
+        texto_status_evento = ft.Text("", color=COLOR_VERDE, size=12)
 
         for ev in reversed(estado["eventos_registrados"]):
             lista_eventos_ui.controls.append(
-                ft.Text(f"• [{ev['minuto']}] {ev['evento']}: {ev['jugador']}", size=12, color=ft.Colors.GREY_300)
+                ft.Text(f"• [{ev['minuto']}] {ev['evento']}: {ev['jugador']}", size=12, color=COLOR_SUBTEXTO)
             )
 
         def al_cambiar_dropdown_evento(e):
@@ -668,7 +682,7 @@ def main(page: ft.Page):
 
             if not tipo_evento or not jugador_sel:
                 texto_status_evento.value = "⚠️ Selecciona evento y jugador."
-                texto_status_evento.color = ft.Colors.RED_400
+                texto_status_evento.color = COLOR_ROJO
                 page.update()
                 return
 
@@ -688,7 +702,7 @@ def main(page: ft.Page):
                 jugador_entra = dd_suplente_entra.value
                 if not jugador_entra:
                     texto_status_evento.value = "⚠️ Selecciona suplente que entra."
-                    texto_status_evento.color = ft.Colors.RED_400
+                    texto_status_evento.color = COLOR_ROJO
                     page.update()
                     return
 
@@ -709,36 +723,36 @@ def main(page: ft.Page):
 
         return ft.Column(
             [
-                ft.Text("⏱️ Cronómetro y Registro de Eventos", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text("⏱️ Cronómetro y Registro", size=18, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
                 marcador_ui,
                 ft.Container(content=texto_reloj, alignment=ft.Alignment(0, 0)),
                 ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0)),
                 ft.Row(
                     [
-                        ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=40, icon_color=ft.Colors.GREEN, on_click=lambda e: setattr(estado, "corriendo", True)),
-                        ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=40, icon_color=ft.Colors.ORANGE, on_click=lambda e: (setattr(estado, "corriendo", False), guardar_estado_partido_activo())),
-                        ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=40, icon_color=ft.Colors.RED, on_click=lambda e: (setattr(estado, "corriendo", False), estado.update({"segundos": 0}), guardar_estado_partido_activo(), page.update())),
+                        ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=36, icon_color=COLOR_VERDE, bgcolor=COLOR_BORDE, on_click=lambda e: setattr(estado, "corriendo", True)),
+                        ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=36, icon_color=COLOR_AMBAR, bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False), guardar_estado_partido_activo())),
+                        ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=36, icon_color=COLOR_ROJO, bgcolor=COLOR_BORDE, on_click=lambda e: (setattr(estado, "corriendo", False), estado.update({"segundos": 0}), guardar_estado_partido_activo(), page.update())),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
                 ),
-                ft.Divider(height=5),
-                ft.Text("📝 Evento de Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+                ft.Divider(height=5, color=COLOR_BORDE),
+                ft.Text("📝 Nuevo Evento", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                 ft.Row([dd_evento, dd_jugador_titular]),
                 dd_suplente_entra,
-                ft.ElevatedButton("Registrar Evento", icon=ft.Icons.ADD_TASK, on_click=registrar_evento_click),
+                ft.ElevatedButton("Registrar Evento", icon=ft.Icons.ADD_TASK, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=registrar_evento_click),
                 texto_status_evento,
-                ft.Text("Historial de Eventos (BD):", size=12, weight=ft.FontWeight.BOLD),
-                ft.Container(content=lista_eventos_ui, bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8, height=110),
+                ft.Text("Historial de Eventos:", size=12, weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO),
+                ft.Container(content=lista_eventos_ui, bgcolor=COLOR_TARJETA, padding=10, border_radius=12, border=ft.border.all(1, COLOR_BORDE), height=110),
             ],
-            scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True, spacing=5,
+            scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True, spacing=6,
         )
 
-    # --- PANTALLA 4: ESTADÍSTICAS Y RANKING ACUMULADO ---
+    # --- PANTALLA 4: RANKING ACUMULADO ---
     def view_minutos():
         jugadores = obtener_jugadores_bd()
         minutos_acumulados_bd = obtener_minutos_totales_bd()
         stats_ui = []
-        texto_export = ft.Text("", color=ft.Colors.GREEN_400)
+        texto_export = ft.Text("", color=COLOR_VERDE)
 
         def click_exportar(e):
             try:
@@ -761,7 +775,6 @@ def main(page: ft.Page):
                 texto_export.value = f"❌ Error exportando: {ex}"
             page.update()
 
-        # Ordenar por minutos jugados acumulados en BD
         jugadores_ordenados = sorted(
             jugadores,
             key=lambda x: minutos_acumulados_bd.get(x["nombre"], 0),
@@ -775,51 +788,47 @@ def main(page: ft.Page):
             segs_totales = minutos_acumulados_bd.get(nombre, 0)
             mins_totales = segs_totales // 60
 
-            tarjeta = ft.Card(
-                content=ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Container(
-                                content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.BLUE_200),
-                                bgcolor=ft.Colors.GREY_800, padding=6, border_radius=8,
-                            ),
-                            ft.Column(
-                                [
-                                    ft.Text(nombre, weight=ft.FontWeight.BOLD, size=14),
-                                    ft.Text(f"Puesto: {puesto}", size=11, color=ft.Colors.GREY_400),
-                                ],
-                                expand=True, spacing=1,
-                            ),
-                            ft.Text(f"{mins_totales} min", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, size=15),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    padding=10, bgcolor=ft.Colors.GREY_900, border_radius=8,
-                )
+            tarjeta = ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=COLOR_TEXTO),
+                            bgcolor=COLOR_CELESTE_BOTON, padding=6, border_radius=8,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(nombre, weight=ft.FontWeight.BOLD, size=13, color=COLOR_TEXTO),
+                                ft.Text(f"Puesto: {puesto}", size=11, color=COLOR_SUBTEXTO),
+                            ],
+                            expand=True, spacing=1,
+                        ),
+                        ft.Text(f"{mins_totales} min", color=COLOR_CELESTE, weight=ft.FontWeight.BOLD, size=15),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                padding=10, bgcolor=COLOR_TARJETA, border_radius=10, border=ft.border.all(1, COLOR_BORDE)
             )
             stats_ui.append(tarjeta)
 
         return ft.Column(
             [
-                ft.Text("📊 Ranking Acumulado (BD Total)", size=20, weight=ft.FontWeight.BOLD),
-                ft.ElevatedButton("Exportar a Excel", icon=ft.Icons.EXPLICIT, on_click=click_exportar),
+                ft.Text("📊 Ranking Acumulado", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                ft.ElevatedButton("Exportar a Excel", icon=ft.Icons.EXPLICIT, bgcolor=COLOR_CELESTE_BOTON, color=COLOR_TEXTO, on_click=click_exportar),
                 texto_export,
-                ft.Divider(height=10),
-                ft.Column(controls=stats_ui, scroll=ft.ScrollMode.AUTO, expand=True),
+                ft.Divider(height=10, color=COLOR_BORDE),
+                ft.Column(controls=stats_ui, scroll=ft.ScrollMode.AUTO, expand=True, spacing=8),
             ],
             expand=True,
         )
 
     # --- CONTENEDORES PRINCIPALES ---
-    contenedor_config = ft.Container(content=view_configuracion(), expand=True, padding=15, visible=True)
-    contenedor_plantel = ft.Container(content=view_plantel(), expand=True, padding=15, visible=False)
-    contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=15, visible=False)
-    contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=15, visible=False)
+    contenedor_config = ft.Container(content=view_configuracion(), expand=True, padding=12, visible=True)
+    contenedor_plantel = ft.Container(content=view_plantel(), expand=True, padding=12, visible=False)
+    contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=12, visible=False)
+    contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=12, visible=False)
 
     def cambiar_pantalla(e):
-        # En el NavigationBar, el índice viene dentro del evento 'e'
         indice = e.control.selected_index
-
         contenedor_config.visible = (indice == 0)
         contenedor_plantel.visible = (indice == 1)
         contenedor_partido.visible = (indice == 2)
@@ -835,10 +844,10 @@ def main(page: ft.Page):
             contenedor_minutos.content = view_minutos()
         page.update()
 
-    # 1. Usar la barra de navegación nativa (con el nombre correcto del componente)
     page.navigation_bar = ft.NavigationBar(
         selected_index=0,
-        bgcolor=ft.Colors.GREY_900,
+        bgcolor=COLOR_TARJETA,
+        indicator_color=COLOR_CELESTE_BOTON,
         on_change=cambiar_pantalla,
         destinations=[
             ft.NavigationBarDestination(icon=ft.Icons.SETTINGS, label="Config"),
@@ -848,20 +857,42 @@ def main(page: ft.Page):
         ]
     )
 
-    # 2. Quitar 'height=800' y usar 'expand=True'
+    header_app = ft.Container(
+        content=ft.Row(
+            [
+                ft.Row([
+                    ft.Icon(ft.Icons.SPORTS_SOCCER, color=COLOR_CELESTE, size=22),
+                    ft.Text("DUNALASTAIR FC", weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO),
+                ], spacing=6),
+                ft.Container(
+                    content=ft.Text("SQLite BD", size=10, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                    bgcolor=COLOR_BORDE, padding=ft.Padding(8, 3, 8, 3), border_radius=8
+                )
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        padding=ft.Padding(12, 10, 12, 10),
+        bgcolor=COLOR_TARJETA,
+    )
+
     app_layout = ft.Container(
-        width=400,
-        expand=True,  # Esto permite que se adapte al alto exacto del celular
-        bgcolor=ft.Colors.BLACK,
-        content=ft.Stack(
-            controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
+        expand=True,
+        bgcolor=COLOR_FONDO,
+        content=ft.Column(
+            controls=[
+                header_app,
+                ft.Stack(
+                    controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
+                    expand=True,
+                ),
+            ],
             expand=True,
+            spacing=0,
         ),
     )
 
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    page.bgcolor = ft.Colors.BLACK
     page.add(app_layout)
 
 
