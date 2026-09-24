@@ -1,364 +1,372 @@
+import asyncio
+from datetime import datetime
+import json
+import os
+import sqlite3
 import flet as ft
 import pandas as pd
-import os
-import asyncio
-import json
+
+# --- CONFIGURACIÓN DE BASE DE DATOS SQLITE ---
+DB_PATH = "partidos_dunalastair.db"
+
+DATOS_INICIALES = [
+    {"numero": 1, "nombre": "Santiago Muñoz - Santiago", "puesto": "Arquero"},
+    {"numero": 2, "nombre": "ignacio Navarrete - Nacho", "puesto": "Defensa"},
+    {"numero": 3, "nombre": "Santi espinoza - Santi", "puesto": "Defensa"},
+    {"numero": 4, "nombre": "Tomi Villena", "puesto": "Defensa"},
+    {"numero": 5, "nombre": "Benjamin Nieto - Benja", "puesto": "Delantero"},
+    {"numero": 6, "nombre": "Tommy Lioret - Tommy", "puesto": "Delantero"},
+    {"numero": 7, "nombre": "Renato. Rena", "puesto": "Delantero"},
+    {"numero": 8, "nombre": "Tomi castillo - Tomás C -", "puesto": "Medio"},
+    {"numero": 9, "nombre": "Gaspar Roblero - Gaspy", "puesto": "Medio"},
+    {"numero": 10, "nombre": "Joaquin Caceres", "puesto": "Medio"},
+    {"numero": 11, "nombre": "Laura Navarrete", "puesto": "Medio"},
+    {"numero": 12, "nombre": "Igna", "puesto": "Medio"},
+]
+
+EVENTOS_DEFECTO = [
+    "Gol",
+    "Asistencia",
+    "Tarjeta Amarilla",
+    "Tarjeta Roja",
+    "Cambio",
+]
+
+
+def inicializar_bd():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Tabla de Jugadores (Plantel)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS jugadores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT NOT NULL,
+            nombre TEXT NOT NULL UNIQUE,
+            puesto TEXT NOT NULL
+        )
+    """)
+
+    # Tabla de Partidos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS partidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            equipo_rival TEXT NOT NULL,
+            tiempos_por_partido INTEGER NOT NULL,
+            minutos_por_tiempo INTEGER NOT NULL,
+            jugadores_en_cancha INTEGER NOT NULL,
+            goles_local INTEGER DEFAULT 0,
+            goles_rival INTEGER DEFAULT 0,
+            segundos INTEGER DEFAULT 0,
+            titulares TEXT DEFAULT '[]',
+            eventos TEXT DEFAULT '[]',
+            minutos_partido TEXT DEFAULT '{}'
+        )
+    """)
+
+    # Si la tabla de jugadores está vacía, insertamos la plantilla inicial
+    cursor.execute("SELECT COUNT(*) FROM jugadores")
+    if cursor.fetchone()[0] == 0:
+        for j in DATOS_INICIALES:
+            cursor.execute(
+                "INSERT INTO jugadores (numero, nombre, puesto) VALUES (?, ?, ?)",
+                (str(j["numero"]), j["nombre"], j["puesto"]),
+            )
+
+    conn.commit()
+    conn.close()
 
 
 def main(page: ft.Page):
-    page.title = "Dunalastairs - Control de Cambios v3.1"
-    page.window.width = 400
-    page.window.height = 800
+    inicializar_bd()
+
+    page.title = "Dunalastair - Control de Cambios BD Total"
+    page.window_width = 400
+    page.window_height = 800
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
 
-    # --- Estado Global ---
+    # --- ESTADO DE LA APLICACIÓN ---
     estado = {
         "segundos": 0,
         "corriendo": False,
-        "partido_actual": 1,
-        "minutos_jugadores": {},
+        "goles_local": 0,
+        "goles_rival": 0,
+        "partidos": [],
+        "partido_activo_id": None,
         "minutos_partido_actual": {},
         "titulares_seleccionados": [],
+        "eventos_registrados": [],
         "config": {
-            "partidos_torneo": 3,
-            "minutos_por_tiempo": 10,
+            "equipo_rival": "Rival FC",
             "tiempos_por_partido": 2,
+            "minutos_por_tiempo": 10,
             "jugadores_en_cancha": 7,
-            "min_alto": 40,
-            "min_medio": 30,
-            "min_bajo": 20,
-            "max_min_partido": 15,
-            "alerta_min_1": 3,
-            "alerta_min_2": 5,
-            "alerta_min_3": 8
-        }
+            "fecha": datetime.now().strftime("%Y-%m-%d"),
+        },
     }
 
-    # --- PERSISTENCIA ---
-    def guardar_estado_local():
-        datos_a_guardar = {
-            "partido_actual": estado["partido_actual"],
-            "minutos_jugadores": estado["minutos_jugadores"],
-            "minutos_partido_actual": estado["minutos_partido_actual"],
-            "config": estado["config"],
-            "titulares_seleccionados": estado["titulares_seleccionados"]
-        }
+    # --- CONSULTAS Y OPERACIONES EN BASE DE DATOS ---
+
+    def obtener_jugadores_bd():
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT numero, nombre, puesto FROM jugadores ORDER BY id ASC")
+        filas = cursor.fetchall()
+        conn.close()
+        return [{"numero": r[0], "nombre": r[1], "puesto": r[2]} for r in filas]
+
+    def agregar_jugador_bd(num, nom, puesto):
         try:
-            with open("estado_torneo.json", "w", encoding="utf-8") as f:
-                json.dump(datos_a_guardar, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            print(f"Error al guardar estado: {e}")
-
-    def cargar_estado_local():
-        if os.path.exists("estado_torneo.json"):
-            try:
-                with open("estado_torneo.json", "r", encoding="utf-8") as f:
-                    datos = json.load(f)
-                    estado["partido_actual"] = datos.get("partido_actual", 1)
-                    estado["minutos_jugadores"] = datos.get("minutos_jugadores", {})
-                    estado["minutos_partido_actual"] = datos.get("minutos_partido_actual", {})
-                    estado["titulares_seleccionados"] = datos.get("titulares_seleccionados", [])
-                    estado["config"].update(datos.get("config", {}))
-            except Exception as e:
-                print(f"Error al cargar estado: {e}")
-
-    def reiniciar_torneo_completo():
-        estado["segundos"] = 0
-        estado["corriendo"] = False
-        estado["partido_actual"] = 1
-        estado["minutos_jugadores"] = {}
-        estado["minutos_partido_actual"] = {}
-        estado["titulares_seleccionados"] = []
-        if os.path.exists("estado_torneo.json"):
-            os.remove("estado_torneo.json")
-
-    def exportar_a_excel(jugadores):
-        try:
-            datos = []
-            for j in jugadores:
-                nom = j['nombre']
-                puesto = j['puesto']
-                segs = estado["minutos_jugadores"].get(nom, 0)
-                mins = segs // 60
-
-                if "arquero" in puesto.lower():
-                    meta = estado["config"]["partidos_torneo"] * estado["config"]["tiempos_por_partido"] * \
-                           estado["config"]["minutos_por_tiempo"]
-                elif '0.75' in j['rendimiento']:
-                    meta = estado["config"]["min_medio"]
-                elif '0.5' in j['rendimiento']:
-                    meta = estado["config"]["min_bajo"]
-                else:
-                    meta = estado["config"]["min_alto"]
-
-                datos.append({
-                    "Jugador": nom,
-                    "Puesto": puesto,
-                    "Minutos Jugados": mins,
-                    "Minutos Meta": meta,
-                    "Cumplimiento (%)": round((mins / meta * 100), 1) if meta > 0 else 0
-                })
-            df_export = pd.DataFrame(datos)
-            df_export.to_excel("Reporte_Minutos_Final.xlsx", index=False)
-            df_export.to_csv("Reporte_Minutos_Final.csv", index=False, encoding="utf-8-sig")
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO jugadores (numero, nombre, puesto) VALUES (?, ?, ?)",
+                (str(num), nom, puesto),
+            )
+            conn.commit()
+            conn.close()
             return True
-        except Exception as e:
-            print(f"Error exportando: {e}")
+        except sqlite3.IntegrityError:
             return False
 
-    cargar_estado_local()
+    def cargar_partidos_bd():
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, fecha, equipo_rival, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha, goles_local, goles_rival, segundos, titulares, eventos, minutos_partido FROM partidos ORDER BY fecha DESC, id DESC"
+        )
+        filas = cursor.fetchall()
+        conn.close()
 
-    texto_reloj = ft.Text("00:00", size=80, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200)
-    texto_alerta_cambio = ft.Text("Partido en curso", weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400)
-    texto_alerta_limite = ft.Text("", weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400)
-    texto_indicador_partido = ft.Text(f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}",
-                                      size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200)
+        lista_partidos = []
+        for row in filas:
+            lista_partidos.append(
+                {
+                    "id": row[0],
+                    "fecha": row[1],
+                    "equipo_rival": row[2],
+                    "tiempos_por_partido": row[3],
+                    "minutos_por_tiempo": row[4],
+                    "jugadores_en_cancha": row[5],
+                    "goles_local": row[6],
+                    "goles_rival": row[7],
+                    "segundos": row[8],
+                    "titulares": json.loads(row[9]),
+                    "eventos": json.loads(row[10]),
+                    "minutos_partido": json.loads(row[11]),
+                }
+            )
+        estado["partidos"] = lista_partidos
+
+        if not lista_partidos:
+            crear_partido_bd(
+                datetime.now().strftime("%Y-%m-%d"), "Rival FC", 2, 10, 7
+            )
+            cargar_partidos_bd()
+        elif estado["partido_activo_id"] is None:
+            activar_partido_memoria(lista_partidos[0])
+
+    def crear_partido_bd(fecha, rival, tiempos, minutos_tiempo, jugadores_cancha):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO partidos (fecha, equipo_rival, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (fecha, rival, tiempos, minutos_tiempo, jugadores_cancha),
+        )
+        nuevo_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return nuevo_id
+
+    def guardar_estado_partido_activo():
+        if estado["partido_activo_id"] is None:
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE partidos
+            SET goles_local=?, goles_rival=?, segundos=?, titulares=?, eventos=?, minutos_partido=?
+            WHERE id=?
+        """,
+            (
+                estado["goles_local"],
+                estado["goles_rival"],
+                estado["segundos"],
+                json.dumps(estado["titulares_seleccionados"], ensure_ascii=False),
+                json.dumps(estado["eventos_registrados"], ensure_ascii=False),
+                json.dumps(estado["minutos_partido_actual"], ensure_ascii=False),
+                estado["partido_activo_id"],
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def eliminar_partido_bd(partido_id):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM partidos WHERE id=?", (partido_id,))
+        conn.commit()
+        conn.close()
+
+    def reiniciar_base_datos():
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM partidos")
+        cursor.execute("DELETE FROM jugadores")
+        for j in DATOS_INICIALES:
+            cursor.execute(
+                "INSERT INTO jugadores (numero, nombre, puesto) VALUES (?, ?, ?)",
+                (str(j["numero"]), j["nombre"], j["puesto"]),
+            )
+        conn.commit()
+        conn.close()
+        estado["partido_activo_id"] = None
+        cargar_partidos_bd()
+
+    def obtener_minutos_totales_bd():
+        """Calcula el acumulado global de segundos por jugador directamente leyendo la BD."""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT minutos_partido FROM partidos")
+        filas = cursor.fetchall()
+        conn.close()
+
+        minutos_totales = {}
+        for row in filas:
+            min_dict = json.loads(row[0])
+            for jugador, segs in min_dict.items():
+                minutos_totales[jugador] = minutos_totales.get(jugador, 0) + segs
+        return minutos_totales
+
+    def activar_partido_memoria(partido):
+        estado["partido_activo_id"] = partido["id"]
+        estado["goles_local"] = partido["goles_local"]
+        estado["goles_rival"] = partido["goles_rival"]
+        estado["segundos"] = partido["segundos"]
+        estado["titulares_seleccionados"] = partido["titulares"]
+        estado["eventos_registrados"] = partido["eventos"]
+        estado["minutos_partido_actual"] = partido["minutos_partido"]
+        estado["config"] = {
+            "equipo_rival": partido["equipo_rival"],
+            "tiempos_por_partido": partido["tiempos_por_partido"],
+            "minutos_por_tiempo": partido["minutos_por_tiempo"],
+            "jugadores_en_cancha": partido["jugadores_en_cancha"],
+            "fecha": partido["fecha"],
+        }
+
+    # Cargar datos desde SQLite al arrancar
+    cargar_partidos_bd()
+
+    # --- COMPONENTES VISUALES Y BUCLE ---
+    texto_reloj = ft.Text("00:00", size=55, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200)
+    texto_alerta_cambio = ft.Text("Partido listo", weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_400)
 
     def formatear_tiempo(segs):
         return f"{segs // 60:02d}:{segs % 60:02d}"
 
-    # --- MOTOR DEL RELOJ ---
     async def loop_reloj():
         contador_guardado = 0
-
         while True:
             await asyncio.sleep(1)
-
             if estado["corriendo"]:
                 estado["segundos"] += 1
                 seg = estado["segundos"]
-                minuto_absoluto = seg // 60
                 texto_reloj.value = formatear_tiempo(seg)
 
                 duracion_tiempo_segs = estado["config"]["minutos_por_tiempo"] * 60
 
-                # Novedad: El minuto relativo dentro del tiempo actual (0 a 9)
-                # Así las alertas funcionan igual en el 1er y 2do tiempo.
-                minuto_relativo = (seg % duracion_tiempo_segs) // 60
-
-                # --- CORRECCIÓN BUG DETENCIÓN ---
-                # Solo se detiene EXACTAMENTE en los múltiplos del tiempo (ej: 10:00, 20:00)
                 if seg > 0 and seg % duracion_tiempo_segs == 0:
                     estado["corriendo"] = False
                     tiempo_terminado = seg // duracion_tiempo_segs
                     texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO {tiempo_terminado}!"
                     texto_alerta_cambio.color = ft.Colors.AMBER_400
 
-                max_segs_partido = estado["config"]["max_min_partido"] * 60
-                jugadores_excedidos = []
-                jugadores_dict = {j['nombre']: j['puesto'] for j in obtener_datos_jugadores()}
-
+                # Sumar tiempo solo a los titulares seleccionados en cancha
                 for jugador in estado["titulares_seleccionados"]:
-                    estado["minutos_jugadores"][jugador] = estado["minutos_jugadores"].get(jugador, 0) + 1
-                    estado["minutos_partido_actual"][jugador] = estado["minutos_partido_actual"].get(jugador, 0) + 1
-
-                    # Límite por partido excluye al arquero
-                    puesto_j = jugadores_dict.get(jugador, "").lower()
-                    if "arquero" not in puesto_j and estado["minutos_partido_actual"][jugador] >= max_segs_partido:
-                        jugadores_excedidos.append(jugador)
+                    estado["minutos_partido_actual"][jugador] = (
+                        estado["minutos_partido_actual"].get(jugador, 0) + 1
+                    )
 
                 contador_guardado += 1
-                if contador_guardado >= 10:
-                    guardar_estado_local()
+                if contador_guardado >= 5:  # Guardar en SQLite cada 5 segundos
+                    guardar_estado_partido_activo()
                     contador_guardado = 0
 
-                minutos_alerta = [
-                    estado["config"]["alerta_min_1"],
-                    estado["config"]["alerta_min_2"],
-                    estado["config"]["alerta_min_3"]
-                ]
-
-                # Se gatilla evaluando el minuto dentro del tiempo actual
-                es_minuto_alerta = (minuto_relativo in minutos_alerta)
-
-                if jugadores_excedidos:
-                    nombres_alertas = ", ".join(jugadores_excedidos)
-                    texto_alerta_limite.value = f"🚨 ¡LÍMITE ({estado['config']['max_min_partido']} min)! Cambiar a: {nombres_alertas}"
-                else:
-                    texto_alerta_limite.value = ""
-
-                if es_minuto_alerta or jugadores_excedidos:
-                    texto_reloj.color = ft.Colors.RED_400
-                    if es_minuto_alerta and not jugadores_excedidos:
-                        texto_alerta_cambio.value = f"🔔 ¡MINUTO {minuto_absoluto}! Evaluar cambios."
-                        texto_alerta_cambio.color = ft.Colors.RED_400
-                elif estado["corriendo"]:
-                    texto_reloj.color = ft.Colors.BLUE_200
-                    texto_alerta_cambio.value = "Tiempo de juego normal"
-                    texto_alerta_cambio.color = ft.Colors.GREY_400
-
                 try:
-                    if texto_reloj.page:
-                        texto_reloj.update()
-                        texto_alerta_cambio.update()
-                        texto_alerta_limite.update()
+                    page.update()
                 except Exception:
                     pass
 
     page.run_task(loop_reloj)
 
-    def play_click(e):
-        estado["corriendo"] = True
-        page.update()
-
-    def pause_click(e):
-        estado["corriendo"] = False
-        guardar_estado_local()
-        page.update()
-
-    def stop_click(e):
-        estado["corriendo"] = False
-        estado["segundos"] = 0
-        texto_reloj.value = "00:00"
-        texto_reloj.color = ft.Colors.BLUE_200
-        texto_alerta_cambio.value = "Partido detenido"
-        texto_alerta_cambio.color = ft.Colors.GREY_400
-        texto_alerta_limite.value = ""
-        guardar_estado_local()
-        page.update()
-
-    def obtener_datos_jugadores():
-        archivo_excel = "Equipo_Dunalastairs.xlsx"
-        jugadores = []
-        if not os.path.exists(archivo_excel): return jugadores
-        try:
-            df = pd.read_excel(archivo_excel, sheet_name="Plan de Partidos", header=None)
-            header_idx = -1
-            for idx, row in df.iterrows():
-                if "Nombre" in [str(cell).strip() for cell in row.values]:
-                    header_idx = idx;
-                    break
-            if header_idx == -1: return jugadores
-            df.columns = df.iloc[header_idx]
-            df.columns = [str(c).strip() for c in df.columns]
-            df = df[header_idx + 1:]
-
-            for index, row in df.iterrows():
-                nombre = str(row.get('Nombre', ''))
-                puesto = str(row.get('Puesto', ''))
-                rendimiento = str(row.get('Rendimiento', ''))
-                if nombre == 'nan' or nombre.strip() == '' or nombre.lower() == 'none': continue
-                if puesto.lower() not in ["arquero", "defensa", "medio", "delantero"]: continue
-
-                jugadores.append({"nombre": nombre, "puesto": puesto, "rendimiento": rendimiento})
-                if nombre not in estado["minutos_jugadores"]:
-                    estado["minutos_jugadores"][nombre] = 0
-                if nombre not in estado["minutos_partido_actual"]:
-                    estado["minutos_partido_actual"][nombre] = 0
-
-            return jugadores
-        except Exception:
-            return jugadores
-
-    # --- PANTALLA 1: CONFIGURACIÓN ---
+    # --- PANTALLA 1: CONFIGURACIÓN Y HISTORIAL BD ---
     def view_configuracion():
-        tf_partidos = ft.TextField(label="Partidos en el torneo", value=str(estado["config"]["partidos_torneo"]),
-                                   keyboard_type=ft.KeyboardType.NUMBER)
-        tf_tiempos = ft.TextField(label="Tiempos por partido", value=str(estado["config"]["tiempos_por_partido"]),
-                                  keyboard_type=ft.KeyboardType.NUMBER)
-        tf_minutos_tiempo = ft.TextField(label="Minutos por tiempo", value=str(estado["config"]["minutos_por_tiempo"]),
-                                         keyboard_type=ft.KeyboardType.NUMBER)
-        tf_jugadores_cancha = ft.TextField(label="Jugadores en cancha (Titulares)",
-                                           value=str(estado["config"]["jugadores_en_cancha"]),
-                                           keyboard_type=ft.KeyboardType.NUMBER)
+        tf_fecha = ft.TextField(
+            label="Fecha (AAAA-MM-DD)",
+            value=datetime.now().strftime("%Y-%m-%d"),
+            width=150,
+        )
+        tf_rival = ft.TextField(label="Equipo Rival", value="Rival FC", expand=True)
+        tf_tiempos = ft.TextField(label="Tiempos", value="2", keyboard_type=ft.KeyboardType.NUMBER, width=90)
+        tf_minutos_tiempo = ft.TextField(label="Min/Tiempo", value="10", keyboard_type=ft.KeyboardType.NUMBER, width=100)
+        tf_jugadores_cancha = ft.TextField(label="Cancha", value="7", keyboard_type=ft.KeyboardType.NUMBER, width=90)
 
-        dd_alto = ft.Dropdown(label="Alto (min)", value=str(estado["config"]["min_alto"]),
-                              options=[ft.dropdown.Option("30"), ft.dropdown.Option("40"), ft.dropdown.Option("50")],
-                              width=100)
-        dd_medio = ft.Dropdown(label="Medio (min)", value=str(estado["config"]["min_medio"]),
-                               options=[ft.dropdown.Option("20"), ft.dropdown.Option("30"), ft.dropdown.Option("40")],
-                               width=100)
-        dd_bajo = ft.Dropdown(label="Bajo (min)", value=str(estado["config"]["min_bajo"]),
-                              options=[ft.dropdown.Option("10"), ft.dropdown.Option("20"), ft.dropdown.Option("30")],
-                              width=100)
+        texto_feedback = ft.Text("", color=ft.Colors.GREEN_400, size=12)
 
-        tf_max_partido = ft.TextField(label="Minutos máx. jugador campo por partido",
-                                      value=str(estado["config"]["max_min_partido"]),
-                                      keyboard_type=ft.KeyboardType.NUMBER)
-
-        tf_alt1 = ft.TextField(label="Alerta 1 (min)", value=str(estado["config"]["alerta_min_1"]),
-                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
-        tf_alt2 = ft.TextField(label="Alerta 2 (min)", value=str(estado["config"]["alerta_min_2"]),
-                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
-        tf_alt3 = ft.TextField(label="Alerta 3 (min)", value=str(estado["config"]["alerta_min_3"]),
-                               keyboard_type=ft.KeyboardType.NUMBER, width=100)
-
-        texto_balance = ft.Text("", weight=ft.FontWeight.BOLD)
-        texto_feedback = ft.Text("", color=ft.Colors.GREEN)
-
-        def calcular_balance():
+        def crear_partido_click(e):
             try:
-                partidos = int(tf_partidos.value)
-                tiempos = int(tf_tiempos.value)
-                min_tiempo = int(tf_minutos_tiempo.value)
-                cancha = int(tf_jugadores_cancha.value)
-                alto = int(dd_alto.value)
-                medio = int(dd_medio.value)
-                bajo = int(dd_bajo.value)
+                rival = tf_rival.value.strip()
+                fecha_val = tf_fecha.value.strip()
 
-                minutos_partido = tiempos * min_tiempo
-                capacidad_total = partidos * minutos_partido * cancha
+                if not rival or not fecha_val:
+                    texto_feedback.value = "⚠️ Ingresa fecha y nombre del rival."
+                    texto_feedback.color = ft.Colors.RED_400
+                    page.update()
+                    return
 
-                jugadores = obtener_datos_jugadores()
-                demanda_total = 0
-                for j in jugadores:
-                    puesto = j["puesto"].lower()
-                    rend = j["rendimiento"]
-                    if "arquero" in puesto:
-                        demanda_total += partidos * minutos_partido
-                    elif "0.75" in rend:
-                        demanda_total += medio
-                    elif "0.5" in rend:
-                        demanda_total += bajo
-                    else:
-                        demanda_total += alto
+                nuevo_id = crear_partido_bd(
+                    fecha_val,
+                    rival,
+                    int(tf_tiempos.value),
+                    int(tf_minutos_tiempo.value),
+                    int(tf_jugadores_cancha.value),
+                )
 
-                diferencia = capacidad_total - demanda_total
-                if diferencia >= 0:
-                    texto_balance.value = f"🟢 Factible: Disponibles {capacidad_total} min | Requeridos {demanda_total} min"
-                    texto_balance.color = ft.Colors.GREEN_400
-                else:
-                    texto_balance.value = f"🔴 Imposible: Disponibles {capacidad_total} min | Requeridos {demanda_total} min"
-                    texto_balance.color = ft.Colors.RED_400
-            except Exception:
-                texto_balance.value = "⚠️ Ingresa números válidos."
-                texto_balance.color = ft.Colors.YELLOW_400
+                cargar_partidos_bd()
+                for p in estado["partidos"]:
+                    if p["id"] == nuevo_id:
+                        activar_partido_memoria(p)
+                        break
 
-        def al_cambiar_parametro(e):
-            calcular_balance()
-            page.update()
-
-        tf_partidos.on_change = al_cambiar_parametro
-        tf_tiempos.on_change = al_cambiar_parametro
-        tf_minutos_tiempo.on_change = al_cambiar_parametro
-        tf_jugadores_cancha.on_change = al_cambiar_parametro
-        dd_alto.on_change = al_cambiar_parametro
-        dd_medio.on_change = al_cambiar_parametro
-        dd_bajo.on_change = al_cambiar_parametro
-
-        def guardar_config(e):
-            try:
-                estado["config"]["partidos_torneo"] = int(tf_partidos.value)
-                estado["config"]["tiempos_por_partido"] = int(tf_tiempos.value)
-                estado["config"]["minutos_por_tiempo"] = int(tf_minutos_tiempo.value)
-                estado["config"]["jugadores_en_cancha"] = int(tf_jugadores_cancha.value)
-                estado["config"]["min_alto"] = int(dd_alto.value)
-                estado["config"]["min_medio"] = int(dd_medio.value)
-                estado["config"]["min_bajo"] = int(dd_bajo.value)
-                estado["config"]["max_min_partido"] = int(tf_max_partido.value)
-                estado["config"]["alerta_min_1"] = int(tf_alt1.value)
-                estado["config"]["alerta_min_2"] = int(tf_alt2.value)
-                estado["config"]["alerta_min_3"] = int(tf_alt3.value)
-
-                texto_indicador_partido.value = f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}"
-                texto_feedback.value = "✅ Parámetros guardados."
-                guardar_estado_local()
+                texto_feedback.value = f"✅ Partido vs '{rival}' registrado en BD ({fecha_val})."
+                texto_feedback.color = ft.Colors.GREEN_400
+                contenedor_config.content = view_configuracion()
                 page.update()
             except ValueError:
-                texto_feedback.value = "❌ Ingresa valores válidos."
-                texto_feedback.color = ft.Colors.RED
+                texto_feedback.value = "❌ Ingresa números válidos."
+                texto_feedback.color = ft.Colors.RED_400
                 page.update()
+
+        def seleccionar_partido(partido):
+            activar_partido_memoria(partido)
+            guardar_estado_partido_activo()
+            contenedor_config.content = view_configuracion()
+            page.update()
+
+        def eliminar_partido(partido_id):
+            eliminar_partido_bd(partido_id)
+            cargar_partidos_bd()
+            if estado["partidos"]:
+                activar_partido_memoria(estado["partidos"][0])
+            contenedor_config.content = view_configuracion()
+            page.update()
 
         def confirmar_reset(e):
             def cerrar_dlg(ev):
@@ -366,111 +374,153 @@ def main(page: ft.Page):
                 page.update()
 
             def procesar_reset(ev):
-                reiniciar_torneo_completo()
+                reiniciar_base_datos()
                 texto_reloj.value = "00:00"
-                texto_indicador_partido.value = f"Partido 1 de {estado['config']['partidos_torneo']}"
-                texto_feedback.value = "🔄 Torneo reiniciado a 0."
+                texto_alerta_cambio.value = "BD Reiniciada"
+                texto_feedback.value = "🔄 Toda la BD fue restablecida."
                 dialogo_reset.open = False
+                contenedor_config.content = view_configuracion()
                 page.update()
 
             dialogo_reset = ft.AlertDialog(
-                title=ft.Text("¿Reiniciar Torneo?"),
-                content=ft.Text("Esto borrará los minutos acumulados y el progreso del campeonato actual."),
+                title=ft.Text("¿Borrar Base de Datos?"),
+                content=ft.Text("Se eliminarán todos los partidos y estadísticas registradas."),
                 actions=[
                     ft.TextButton("Cancelar", on_click=cerrar_dlg),
-                    ft.ElevatedButton("Sí, Reiniciar", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE,
-                                      on_click=procesar_reset),
+                    ft.ElevatedButton("Borrar BD", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=procesar_reset),
                 ],
             )
             page.overlay.append(dialogo_reset)
             dialogo_reset.open = True
             page.update()
 
-        calcular_balance()
+        # Agrupar partidos por fecha
+        partidos_por_fecha = {}
+        for p in estado["partidos"]:
+            f = p["fecha"]
+            partidos_por_fecha.setdefault(f, []).append(p)
 
-        return ft.Column([
-            ft.Row([
-                ft.Text("⚙️ Configuración del Torneo", size=22, weight=ft.FontWeight.BOLD),
-                ft.Container(
-                    content=ft.Text("v3.1", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                    bgcolor=ft.Colors.GREEN_700, padding=ft.Padding(8, 3, 8, 3), border_radius=10
+        partidos_ui_grupos = []
+        for fecha_grupo, partidos_lista in partidos_por_fecha.items():
+            partidos_ui_grupos.append(
+                ft.Text(f"📅 {fecha_grupo}", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400, size=13)
+            )
+            for p in partidos_lista:
+                es_activo = p["id"] == estado["partido_activo_id"]
+
+                def crear_handler_select(partido_obj):
+                    return lambda e: seleccionar_partido(partido_obj)
+
+                def crear_handler_delete(partido_id_val):
+                    return lambda e: eliminar_partido(partido_id_val)
+
+                tarjeta = ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text(f"vs {p['equipo_rival']}", weight=ft.FontWeight.BOLD, size=15),
+                                    ft.Text(f"Goles: {p['goles_local']} - {p['goles_rival']}", color=ft.Colors.GREEN_300, weight=ft.FontWeight.BOLD),
+                                    ft.Container(
+                                        content=ft.Text("ACTIVO", size=10, weight=ft.FontWeight.BOLD),
+                                        bgcolor=ft.Colors.GREEN_700,
+                                        padding=ft.Padding(5, 2, 5, 2),
+                                        border_radius=5,
+                                    ) if es_activo else ft.Container(),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            ft.Text(
+                                f"{p['tiempos_por_partido']} Tiempos | {p['minutos_por_tiempo']} min/tiempo | Max {p['jugadores_en_cancha']} en cancha",
+                                size=11, color=ft.Colors.GREY_400,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.ElevatedButton(
+                                        "Seleccionar" if not es_activo else "En Juego",
+                                        icon=ft.Icons.CHECK_CIRCLE if es_activo else ft.Icons.PLAY_ARROW,
+                                        disabled=es_activo,
+                                        on_click=crear_handler_select(p),
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.DELETE,
+                                        icon_color=ft.Colors.RED_400,
+                                        on_click=crear_handler_delete(p["id"]),
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                        ],
+                        spacing=4,
+                    ),
+                    padding=10,
+                    bgcolor=ft.Colors.GREY_900,
+                    border_radius=8,
+                    border=ft.border.all(1, ft.Colors.GREEN_400) if es_activo else None,
                 )
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(),
-            ft.Text("Parámetros Generales", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-            tf_partidos, tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha,
-            ft.Divider(),
-            ft.Text("1. Minutos Objetivo por Rendimiento", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-            ft.Row([dd_alto, dd_medio, dd_bajo], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Card(
-                content=ft.Container(content=texto_balance, padding=10, bgcolor=ft.Colors.GREY_900, border_radius=8)),
-            ft.Divider(),
-            ft.Text("2. Límites y Alertas de Rotación", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
-            tf_max_partido,
-            ft.Text("Minutos del partido para alertas de cambio:", size=12, color=ft.Colors.GREY_400),
-            ft.Row([tf_alt1, tf_alt2, tf_alt3], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(),
-            ft.Row([
-                ft.ElevatedButton("Guardar", icon=ft.Icons.SAVE, width=150, on_click=guardar_config),
-                ft.OutlinedButton("Reset Torneo", icon=ft.Icons.DELETE_FOREVER, width=150, icon_color=ft.Colors.RED_400,
-                                  on_click=confirmar_reset)
-            ], alignment=ft.MainAxisAlignment.SPACE_EVENLY),
-            texto_feedback
-        ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
+                partidos_ui_grupos.append(tarjeta)
 
-    # --- PANTALLA 2: PLANTEL DIVIDIDO ---
-    def view_plantel():
-        jugadores = obtener_datos_jugadores()
-        max_titulares = estado["config"]["jugadores_en_cancha"]
-        max_segs_partido = estado["config"]["max_min_partido"] * 60
-        mins_partido_total = estado['config']['tiempos_por_partido'] * estado['config']['minutos_por_tiempo']
-
-        texto_contador = ft.Text(
-            f"Titulares en cancha: {len(estado['titulares_seleccionados'])} / {max_titulares}",
-            color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD
+        return ft.Column(
+            [
+                ft.Row([
+                    ft.Text("⚙️ Configuración", size=20, weight=ft.FontWeight.BOLD),
+                    ft.Container(
+                        content=ft.Text("BD SQLite Conectada", size=10, color=ft.Colors.WHITE),
+                        bgcolor=ft.Colors.BLUE_800, padding=ft.Padding(6, 3, 6, 3), border_radius=8
+                    )
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(height=5),
+                ft.Text("1. Nuevo Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+                ft.Row([tf_fecha, tf_rival]),
+                ft.Row([tf_tiempos, tf_minutos_tiempo, tf_jugadores_cancha]),
+                ft.Row([
+                    ft.ElevatedButton("Guardar en BD", icon=ft.Icons.SAVE, on_click=crear_partido_click),
+                    ft.OutlinedButton("Resetear BD", icon=ft.Icons.DELETE_FOREVER, icon_color=ft.Colors.RED_400, on_click=confirmar_reset),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                texto_feedback,
+                ft.Divider(height=10),
+                ft.Text("2. Historial de Partidos en BD", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+                ft.Column(controls=partidos_ui_grupos, spacing=8, scroll=ft.ScrollMode.AUTO),
+            ],
+            spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
         )
-        texto_alerta = ft.Text("", color=ft.Colors.RED_400)
 
-        def obtener_prioridad_orden(j):
-            puesto = j['puesto'].lower()
-            segs_hoy = estado["minutos_partido_actual"].get(j['nombre'], 0)
-            if "arquero" in puesto:
-                return (999999, segs_hoy)
-            return (0, segs_hoy)
+    # --- PANTALLA 2: PLANTEL Y JUGADORES ---
+    def view_plantel():
+        jugadores = obtener_jugadores_bd()
+        max_titulares = estado["config"]["jugadores_en_cancha"]
 
-        jugadores_ordenados = sorted(jugadores, key=obtener_prioridad_orden, reverse=True)
+        tf_nuevo_num = ft.TextField(label="N°", width=60)
+        tf_nuevo_nom = ft.TextField(label="Nombre Jugador", expand=True)
+        tf_nuevo_puesto = ft.TextField(label="Puesto", width=110)
+        texto_status_jugador = ft.Text("", size=11)
 
-        titulares_ui = []
-        suplentes_ui = []
+        def click_agregar_jugador(e):
+            if tf_nuevo_nom.value and tf_nuevo_num.value:
+                res = agregar_jugador_bd(
+                    tf_nuevo_num.value.strip(),
+                    tf_nuevo_nom.value.strip(),
+                    tf_nuevo_puesto.value.strip() or "Jugador",
+                )
+                if res:
+                    texto_status_jugador.value = "✅ Jugador agregado a la BD."
+                    texto_status_jugador.color = ft.Colors.GREEN_400
+                    contenedor_plantel.content = view_plantel()
+                else:
+                    texto_status_jugador.value = "⚠️ El jugador ya existe."
+                    texto_status_jugador.color = ft.Colors.RED_400
+                page.update()
 
-        for idx, j in enumerate(jugadores_ordenados, start=1):
-            nombre = j['nombre']
-            puesto = j['puesto']
+        titulares_ui, suplentes_ui = [], []
 
-            color_badge = ft.Colors.GREY_700
-            if "arquero" in puesto.lower():
-                color_badge = ft.Colors.AMBER_800
-            elif "defensa" in puesto.lower():
-                color_badge = ft.Colors.BLUE_800
-            elif "medio" in puesto.lower():
-                color_badge = ft.Colors.GREEN_800
-            elif "delantero" in puesto.lower():
-                color_badge = ft.Colors.RED_800
+        for j in jugadores:
+            nombre = j["nombre"]
+            puesto = j["puesto"]
+            num = j["numero"]
 
             es_titular = nombre in estado["titulares_seleccionados"]
-            segs_jugados_hoy = estado["minutos_partido_actual"].get(nombre, 0)
-            mins_jugados_hoy = segs_jugados_hoy // 60
-
-            es_arquero = "arquero" in puesto.lower()
-            alcanzo_limite = (not es_arquero) and (segs_jugados_hoy >= max_segs_partido)
-
-            if es_arquero:
-                texto_tiempo = f"En este partido: {mins_jugados_hoy}/{mins_partido_total} min (Arquero)"
-                subtexto_color = ft.Colors.GREY_400
-            else:
-                texto_tiempo = f"En este partido: {mins_jugados_hoy}/{estado['config']['max_min_partido']} min"
-                if alcanzo_limite: texto_tiempo += " ⚠️ (MÁXIMO)"
-                subtexto_color = ft.Colors.RED_400 if alcanzo_limite else ft.Colors.GREY_400
+            segs_hoy = estado["minutos_partido_actual"].get(nombre, 0)
+            mins_hoy = segs_hoy // 60
 
             def crear_on_change(nom):
                 def on_change(e):
@@ -479,16 +529,13 @@ def main(page: ft.Page):
                         if len(estado["titulares_seleccionados"]) < limite:
                             if nom not in estado["titulares_seleccionados"]:
                                 estado["titulares_seleccionados"].append(nom)
-                            texto_alerta.value = ""
                         else:
                             e.control.value = False
-                            texto_alerta.value = f"⚠️ Máximo {limite} jugadores en cancha."
                     else:
                         if nom in estado["titulares_seleccionados"]:
                             estado["titulares_seleccionados"].remove(nom)
-                        texto_alerta.value = ""
 
-                    guardar_estado_local()
+                    guardar_estado_partido_activo()
                     contenedor_plantel.content = view_plantel()
                     page.update()
 
@@ -496,198 +543,278 @@ def main(page: ft.Page):
 
             switch_titular = ft.Switch(value=es_titular, on_change=crear_on_change(nombre))
 
-            fila_jugador = ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Text(f"#{idx}", weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.BLUE_200),
-                        bgcolor=ft.Colors.GREY_800, padding=6, border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Row([
-                            ft.Text(nombre, weight=ft.FontWeight.BOLD, size=15),
-                            ft.Container(
-                                content=ft.Text(puesto.upper(), size=9, weight=ft.FontWeight.BOLD),
-                                bgcolor=color_badge, padding=4, border_radius=5
-                            )
-                        ], spacing=6),
-                        ft.Text(texto_tiempo, color=subtexto_color, size=11,
-                                weight=ft.FontWeight.BOLD if alcanzo_limite else ft.FontWeight.NORMAL)
-                    ], expand=True, spacing=2),
-                    switch_titular
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=4
+            fila = ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.BLUE_200),
+                            bgcolor=ft.Colors.GREY_800, padding=6, border_radius=8,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(nombre, weight=ft.FontWeight.BOLD, size=14),
+                                ft.Text(f"{puesto} | {mins_hoy} min hoy", size=11, color=ft.Colors.GREY_400),
+                            ],
+                            expand=True, spacing=1,
+                        ),
+                        switch_titular,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                padding=2,
             )
 
             if es_titular:
-                titulares_ui.append(fila_jugador)
+                titulares_ui.append(fila)
             else:
-                suplentes_ui.append(fila_jugador)
+                suplentes_ui.append(fila)
 
-        return ft.Column([
-            ft.Text("📋 Plantel y Rotaciones", size=24, weight=ft.FontWeight.BOLD),
-            texto_contador,
-            texto_alerta,
-            ft.Divider(),
+        return ft.Column(
+            [
+                ft.Text("📋 Plantel (SQLite)", size=20, weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    f"Titulares en cancha: {len(estado['titulares_seleccionados'])} / {max_titulares}",
+                    color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD,
+                ),
+                ft.Divider(height=5),
+                ft.Text("Agregar Jugador a la BD", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+                ft.Row([tf_nuevo_num, tf_nuevo_nom, tf_nuevo_puesto]),
+                ft.Row([
+                    ft.ElevatedButton("Agregar", icon=ft.Icons.PERSON_ADD, on_click=click_agregar_jugador),
+                    texto_status_jugador
+                ]),
+                ft.Divider(height=10),
+                ft.Text(f"🟢 TITULARES EN CANCHA ({len(titulares_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
+                ft.Container(content=ft.Column(controls=titulares_ui or [ft.Text("Sin titulares", color=ft.Colors.GREY_500)]), bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8),
+                ft.Text(f"🟡 BANCA / SUPLENTES ({len(suplentes_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
+                ft.Container(content=ft.Column(controls=suplentes_ui or [ft.Text("Sin suplentes", color=ft.Colors.GREY_500)]), bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8),
+            ],
+            scroll=ft.ScrollMode.AUTO, expand=True, spacing=6
+        )
 
-            ft.Text(f"🟢 TITULARES EN CANCHA ({len(titulares_ui)})", weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.GREEN_400),
-            ft.Container(
-                content=ft.Column(controls=titulares_ui if titulares_ui else [
-                    ft.Text("Sin titulares seleccionados", color=ft.Colors.GREY_500)]),
-                bgcolor=ft.Colors.GREY_900, padding=10, border_radius=10
-            ),
-
-            ft.Divider(),
-
-            ft.Text(f"🟡 BANCA / SUPLENTES ({len(suplentes_ui)})", weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
-            ft.Container(
-                content=ft.Column(controls=suplentes_ui if suplentes_ui else [
-                    ft.Text("Toda la plantilla está en cancha", color=ft.Colors.GREY_500)]),
-                bgcolor=ft.Colors.GREY_900, padding=10, border_radius=10
-            )
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
-
-    # --- PANTALLA 3: PARTIDO EN VIVO ---
+    # --- PANTALLA 3: PARTIDO EN VIVO Y EVENTOS ---
     def view_partido():
         texto_reloj.value = formatear_tiempo(estado["segundos"])
-        texto_indicador_partido.value = f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}"
+        jugadores = obtener_jugadores_bd()
 
-        def partido_anterior(e):
-            if estado["partido_actual"] > 1 and not estado["corriendo"]:
-                estado["partido_actual"] -= 1
-                estado["segundos"] = 0
-                for k in estado["minutos_partido_actual"]: estado["minutos_partido_actual"][k] = 0
-                texto_reloj.value = "00:00"
-                texto_indicador_partido.value = f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}"
-                texto_alerta_limite.value = ""
-                guardar_estado_local()
-                page.update()
+        nombre_rival = estado["config"]["equipo_rival"]
+        fecha_partido = estado["config"].get("fecha", datetime.now().strftime("%Y-%m-%d"))
 
-        def partido_siguiente(e):
-            if estado["partido_actual"] < estado["config"]["partidos_torneo"] and not estado["corriendo"]:
-                estado["partido_actual"] += 1
-                estado["segundos"] = 0
-                for k in estado["minutos_partido_actual"]: estado["minutos_partido_actual"][k] = 0
-                texto_reloj.value = "00:00"
-                texto_indicador_partido.value = f"Partido {estado['partido_actual']} de {estado['config']['partidos_torneo']}"
-                texto_alerta_limite.value = ""
-                guardar_estado_local()
-                page.update()
+        marcador_ui = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(f"📅 Partido: {fecha_partido}", size=12, color=ft.Colors.GREY_400),
+                    ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text("Dunalastair", weight=ft.FontWeight.BOLD, size=14),
+                                    ft.Text(f"{estado['goles_local']}", size=36, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
+                            ),
+                            ft.Text("-", size=30, weight=ft.FontWeight.BOLD),
+                            ft.Column(
+                                [
+                                    ft.Text(nombre_rival, weight=ft.FontWeight.BOLD, size=14, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text(f"{estado['goles_rival']}", size=36, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=ft.Colors.GREY_900, padding=8, border_radius=10,
+        )
 
-        return ft.Column([
-            ft.Text("⏱️ Partido en Vivo", size=24, weight=ft.FontWeight.BOLD),
-            ft.Divider(),
-            ft.Row([
-                ft.IconButton(icon=ft.Icons.ARROW_BACK_IOS, on_click=partido_anterior),
-                texto_indicador_partido,
-                ft.IconButton(icon=ft.Icons.ARROW_FORWARD_IOS, on_click=partido_siguiente),
-            ], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Container(content=texto_reloj, alignment=ft.Alignment(0, 0), padding=5),
-            ft.Container(content=texto_alerta_limite, alignment=ft.Alignment(0, 0), padding=2),
-            ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0), padding=2),
-            ft.Row([
-                ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=50, icon_color=ft.Colors.GREEN,
-                              on_click=play_click),
-                ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=50, icon_color=ft.Colors.ORANGE,
-                              on_click=pause_click),
-                ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=50, icon_color=ft.Colors.RED, on_click=stop_click),
-            ], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Card(
-                content=ft.Container(
-                    content=ft.Column([
-                        ft.Text("ℹ️ Gestión de Tiempo por Partido", weight=ft.FontWeight.BOLD),
-                        ft.Text(
-                            f"• Duración del tiempo: {estado['config']['minutos_por_tiempo']} min (se detiene solo)."),
-                        ft.Text(
-                            f"• Límite por jugador de campo hoy: {estado['config']['max_min_partido']} min (Excluye Arquero)."),
-                        ft.Text(
-                            f"• Alertas configuradas a los min: {estado['config']['alerta_min_1']}, {estado['config']['alerta_min_2']} y {estado['config']['alerta_min_3']}.")
-                    ]), padding=12, bgcolor=ft.Colors.GREY_900, border_radius=8
-                )
+        dd_evento = ft.Dropdown(label="Evento", options=[ft.dropdown.Option(ev) for ev in EVENTOS_DEFECTO], expand=True)
+        opciones_titulares = [ft.dropdown.Option(nom) for nom in estado["titulares_seleccionados"]]
+        dd_jugador_titular = ft.Dropdown(label="Jugador Titular", options=opciones_titulares, expand=True)
+
+        suplentes_actuales = [j["nombre"] for j in jugadores if j["nombre"] not in estado["titulares_seleccionados"]]
+        dd_suplente_entra = ft.Dropdown(label="Entra (Suplente)", options=[ft.dropdown.Option(nom) for nom in suplentes_actuales], expand=True, visible=False)
+
+        lista_eventos_ui = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
+        texto_status_evento = ft.Text("", color=ft.Colors.GREEN_400, size=12)
+
+        for ev in reversed(estado["eventos_registrados"]):
+            lista_eventos_ui.controls.append(
+                ft.Text(f"• [{ev['minuto']}] {ev['evento']}: {ev['jugador']}", size=12, color=ft.Colors.GREY_300)
             )
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- PANTALLA 4: DASHBOARD DE MINUTOS ---
+        def al_cambiar_dropdown_evento(e):
+            if dd_evento.value == "Gol":
+                dd_jugador_titular.label = "Autor del Gol"
+                dd_jugador_titular.options = [ft.dropdown.Option("⚡ Equipo Rival")] + opciones_titulares
+                dd_suplente_entra.visible = False
+            elif dd_evento.value == "Cambio":
+                dd_jugador_titular.label = "Sale (Titular)"
+                dd_jugador_titular.options = opciones_titulares
+                dd_suplente_entra.visible = True
+            else:
+                dd_jugador_titular.label = "Jugador Titular"
+                dd_jugador_titular.options = opciones_titulares
+                dd_suplente_entra.visible = False
+            page.update()
+
+        dd_evento.on_change = al_cambiar_dropdown_evento
+
+        def registrar_evento_click(e):
+            tipo_evento = dd_evento.value
+            jugador_sel = dd_jugador_titular.value
+
+            if not tipo_evento or not jugador_sel:
+                texto_status_evento.value = "⚠️ Selecciona evento y jugador."
+                texto_status_evento.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            minuto_actual = f"{estado['segundos'] // 60:02d}'"
+
+            if tipo_evento == "Gol":
+                if jugador_sel == "⚡ Equipo Rival":
+                    estado["goles_rival"] += 1
+                    desc_evento = f"Gol de {estado['config']['equipo_rival']}"
+                else:
+                    estado["goles_local"] += 1
+                    desc_evento = f"Gol de {jugador_sel}"
+
+                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": "Gol", "jugador": desc_evento})
+
+            elif tipo_evento == "Cambio":
+                jugador_entra = dd_suplente_entra.value
+                if not jugador_entra:
+                    texto_status_evento.value = "⚠️ Selecciona suplente que entra."
+                    texto_status_evento.color = ft.Colors.RED_400
+                    page.update()
+                    return
+
+                if jugador_sel in estado["titulares_seleccionados"]:
+                    estado["titulares_seleccionados"].remove(jugador_sel)
+                if jugador_entra not in estado["titulares_seleccionados"]:
+                    estado["titulares_seleccionados"].append(jugador_entra)
+
+                desc_evento = f"Sale {jugador_sel} ➔ Entra {jugador_entra}"
+                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": "Cambio", "jugador": desc_evento})
+
+            else:
+                estado["eventos_registrados"].append({"minuto": minuto_actual, "evento": tipo_evento, "jugador": jugador_sel})
+
+            guardar_estado_partido_activo()
+            contenedor_partido.content = view_partido()
+            page.update()
+
+        return ft.Column(
+            [
+                ft.Text("⏱️ Cronómetro y Registro de Eventos", size=18, weight=ft.FontWeight.BOLD),
+                marcador_ui,
+                ft.Container(content=texto_reloj, alignment=ft.Alignment(0, 0)),
+                ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0)),
+                ft.Row(
+                    [
+                        ft.IconButton(icon=ft.Icons.PLAY_ARROW_ROUNDED, icon_size=40, icon_color=ft.Colors.GREEN, on_click=lambda e: setattr(estado, "corriendo", True)),
+                        ft.IconButton(icon=ft.Icons.PAUSE_ROUNDED, icon_size=40, icon_color=ft.Colors.ORANGE, on_click=lambda e: (setattr(estado, "corriendo", False), guardar_estado_partido_activo())),
+                        ft.IconButton(icon=ft.Icons.STOP_ROUNDED, icon_size=40, icon_color=ft.Colors.RED, on_click=lambda e: (setattr(estado, "corriendo", False), estado.update({"segundos": 0}), guardar_estado_partido_activo(), page.update())),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                ft.Divider(height=5),
+                ft.Text("📝 Evento de Partido", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+                ft.Row([dd_evento, dd_jugador_titular]),
+                dd_suplente_entra,
+                ft.ElevatedButton("Registrar Evento", icon=ft.Icons.ADD_TASK, on_click=registrar_evento_click),
+                texto_status_evento,
+                ft.Text("Historial de Eventos (BD):", size=12, weight=ft.FontWeight.BOLD),
+                ft.Container(content=lista_eventos_ui, bgcolor=ft.Colors.GREY_900, padding=8, border_radius=8, height=110),
+            ],
+            scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True, spacing=5,
+        )
+
+    # --- PANTALLA 4: ESTADÍSTICAS Y RANKING ACUMULADO ---
     def view_minutos():
-        jugadores = obtener_datos_jugadores()
+        jugadores = obtener_jugadores_bd()
+        minutos_acumulados_bd = obtener_minutos_totales_bd()
         stats_ui = []
         texto_export = ft.Text("", color=ft.Colors.GREEN_400)
 
         def click_exportar(e):
-            if exportar_a_excel(jugadores):
-                texto_export.value = "✅ 'Reporte_Minutos_Final.xlsx' generado con éxito."
-            else:
-                texto_export.value = "❌ Error al generar el Excel."
+            try:
+                datos_jugadores = []
+                for j in jugadores:
+                    nom = j["nombre"]
+                    segs = minutos_acumulados_bd.get(nom, 0)
+                    datos_jugadores.append(
+                        {
+                            "Número": j["numero"],
+                            "Jugador": nom,
+                            "Puesto": j["puesto"],
+                            "Minutos Acumulados Totales": segs // 60,
+                        }
+                    )
+                df = pd.DataFrame(datos_jugadores)
+                df.to_excel("Reporte_Minutos_BD.xlsx", index=False)
+                texto_export.value = "✅ 'Reporte_Minutos_BD.xlsx' guardado."
+            except Exception as ex:
+                texto_export.value = f"❌ Error exportando: {ex}"
             page.update()
 
+        # Ordenar por minutos jugados acumulados en BD
         jugadores_ordenados = sorted(
             jugadores,
-            key=lambda x: estado["minutos_jugadores"].get(x['nombre'], 0),
-            reverse=True
+            key=lambda x: minutos_acumulados_bd.get(x["nombre"], 0),
+            reverse=True,
         )
 
-        for idx, j in enumerate(jugadores_ordenados, start=1):
-            nombre = j['nombre']
-            rendimiento = j['rendimiento']
-            puesto = j['puesto']
+        for j in jugadores_ordenados:
+            nombre = j["nombre"]
+            puesto = j["puesto"]
+            num = j["numero"]
+            segs_totales = minutos_acumulados_bd.get(nombre, 0)
+            mins_totales = segs_totales // 60
 
-            segs_acumulados = estado["minutos_jugadores"].get(nombre, 0)
-            minutos_jugados = segs_acumulados // 60
-
-            if "arquero" in puesto.lower():
-                meta_minutos = estado["config"]["partidos_torneo"] * estado["config"]["tiempos_por_partido"] * \
-                               estado["config"]["minutos_por_tiempo"]
-            elif '0.75' in rendimiento:
-                meta_minutos = estado["config"]["min_medio"]
-            elif '0.5' in rendimiento:
-                meta_minutos = estado["config"]["min_bajo"]
-            else:
-                meta_minutos = estado["config"]["min_alto"]
-
-            porcentaje = 0.0 if meta_minutos == 0 else minutos_jugados / meta_minutos
-            if porcentaje > 1.0: porcentaje = 1.0
-
-            color_barra = ft.Colors.RED_400
-            if porcentaje >= 1.0:
-                color_barra = ft.Colors.GREEN_400
-            elif porcentaje >= 0.5:
-                color_barra = ft.Colors.AMBER_400
-
-            tarjeta_jugador = ft.Card(
+            tarjeta = ft.Card(
                 content=ft.Container(
-                    content=ft.Column([
-                        ft.Row([
+                    content=ft.Row(
+                        [
                             ft.Container(
-                                content=ft.Text(f"#{idx}", weight=ft.FontWeight.BOLD, size=12,
-                                                color=ft.Colors.BLUE_200),
-                                bgcolor=ft.Colors.GREY_800, padding=6, border_radius=10
+                                content=ft.Text(f"#{num}", weight=ft.FontWeight.BOLD, size=11, color=ft.Colors.BLUE_200),
+                                bgcolor=ft.Colors.GREY_800, padding=6, border_radius=8,
                             ),
-                            ft.Column([
-                                ft.Text(nombre, weight=ft.FontWeight.BOLD, size=14),
-                                ft.Text(puesto, size=11, color=ft.Colors.GREY_400)
-                            ], expand=True, spacing=1),
-                            ft.Text(f"{minutos_jugados}/{meta_minutos} min", color=color_barra,
-                                    weight=ft.FontWeight.BOLD, size=13)
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.ProgressBar(value=porcentaje, color=color_barra, bgcolor=ft.Colors.GREY_900, height=6)
-                    ], spacing=8), padding=12, bgcolor=ft.Colors.GREY_900, border_radius=8
+                            ft.Column(
+                                [
+                                    ft.Text(nombre, weight=ft.FontWeight.BOLD, size=14),
+                                    ft.Text(f"Puesto: {puesto}", size=11, color=ft.Colors.GREY_400),
+                                ],
+                                expand=True, spacing=1,
+                            ),
+                            ft.Text(f"{mins_totales} min", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, size=15),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    padding=10, bgcolor=ft.Colors.GREY_900, border_radius=8,
                 )
             )
-            stats_ui.append(tarjeta_jugador)
+            stats_ui.append(tarjeta)
 
-        return ft.Column([
-            ft.Text("📊 Ranking de Minutos", size=24, weight=ft.FontWeight.BOLD),
-            ft.ElevatedButton("Exportar Reporte a Excel", icon=ft.Icons.EXPLICIT, width=300, on_click=click_exportar),
-            texto_export,
-            ft.Divider(),
-            ft.Column(controls=stats_ui, scroll=ft.ScrollMode.AUTO, expand=True)
-        ], expand=True)
+        return ft.Column(
+            [
+                ft.Text("📊 Ranking Acumulado (BD Total)", size=20, weight=ft.FontWeight.BOLD),
+                ft.ElevatedButton("Exportar a Excel", icon=ft.Icons.EXPLICIT, on_click=click_exportar),
+                texto_export,
+                ft.Divider(height=10),
+                ft.Column(controls=stats_ui, scroll=ft.ScrollMode.AUTO, expand=True),
+            ],
+            expand=True,
+        )
 
-    # --- CONTENEDORES PERSISTENTES ---
-    contenedor_config = ft.Container(content=view_configuracion(), expand=True, padding=20, visible=True)
-    contenedor_plantel = ft.Container(content=view_plantel(), expand=True, padding=20, visible=False)
-    contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=20, visible=False)
-    contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=20, visible=False)
+    # --- CONTENEDORES PRINCIPALES ---
+    contenedor_config = ft.Container(content=view_configuracion(), expand=True, padding=15, visible=True)
+    contenedor_plantel = ft.Container(content=view_plantel(), expand=True, padding=15, visible=False)
+    contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=15, visible=False)
+    contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=15, visible=False)
 
     def cambiar_pantalla(indice):
         contenedor_config.visible = (indice == 0)
@@ -695,67 +822,49 @@ def main(page: ft.Page):
         contenedor_partido.visible = (indice == 2)
         contenedor_minutos.visible = (indice == 3)
 
-        if indice == 1:
+        if indice == 0:
+            contenedor_config.content = view_configuracion()
+        elif indice == 1:
             contenedor_plantel.content = view_plantel()
+        elif indice == 2:
+            contenedor_partido.content = view_partido()
         elif indice == 3:
             contenedor_minutos.content = view_minutos()
         page.update()
 
-    def abrir_dialogo_salir(e):
-        def confirmar_salida(ev):
-            dlg_salir.open = False
-            page.update()
-
-        def cancelar_salida(ev):
-            dlg_salir.open = False
-            page.update()
-
-        dlg_salir = ft.AlertDialog(
-            title=ft.Text("¿Deseas salir?"),
-            content=ft.Text("El estado actual del torneo ha sido guardado automáticamente."),
-            actions=[
-                ft.TextButton("Cancelar", on_click=cancelar_salida),
-                ft.ElevatedButton("Cerrar AVISO", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE,
-                                  on_click=confirmar_salida),
-            ]
-        )
-        page.overlay.append(dlg_salir)
-        dlg_salir.open = True
-        page.update()
-
     bottom_nav = ft.Container(
-        bgcolor=ft.Colors.GREY_900, padding=10,
+        bgcolor=ft.Colors.GREY_900,
+        padding=5,
         content=ft.Row(
             controls=[
                 ft.IconButton(icon=ft.Icons.SETTINGS, on_click=lambda e: cambiar_pantalla(0), tooltip="Configuración"),
                 ft.IconButton(icon=ft.Icons.PEOPLE, on_click=lambda e: cambiar_pantalla(1), tooltip="Plantel"),
                 ft.IconButton(icon=ft.Icons.SPORTS_SOCCER, on_click=lambda e: cambiar_pantalla(2), tooltip="Partido"),
-                ft.IconButton(icon=ft.Icons.BAR_CHART, on_click=lambda e: cambiar_pantalla(3),
-                              tooltip="Ranking Minutos"),
-                ft.IconButton(icon=ft.Icons.EXIT_TO_APP, icon_color=ft.Colors.RED_400, on_click=abrir_dialogo_salir,
-                              tooltip="Salir"),
-            ], alignment=ft.MainAxisAlignment.SPACE_AROUND,
-        )
+                ft.IconButton(icon=ft.Icons.BAR_CHART, on_click=lambda e: cambiar_pantalla(3), tooltip="Ranking"),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+        ),
     )
 
     app_layout = ft.Container(
-        width=450,
-        expand=True,
-        bgcolor=ft.Colors.GREY_900,
+        width=400,
+        height=800,
+        bgcolor=ft.Colors.BLACK,
         content=ft.Column(
             controls=[
                 ft.Stack(
                     controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
-                    expand=True
+                    expand=True,
                 ),
-                bottom_nav
+                bottom_nav,
             ],
             expand=True,
-            spacing=0
-        )
+            spacing=0,
+        ),
     )
 
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.bgcolor = ft.Colors.BLACK
     page.add(app_layout)
 
