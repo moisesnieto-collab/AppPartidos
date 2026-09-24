@@ -816,7 +816,10 @@ def main(page: ft.Page):
     contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=15, visible=False)
     contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=15, visible=False)
 
-    def cambiar_pantalla(indice):
+    def cambiar_pantalla(e):
+        # En el NavigationBar, el índice viene dentro del evento 'e'
+        indice = e.control.selected_index
+
         contenedor_config.visible = (indice == 0)
         contenedor_plantel.visible = (indice == 1)
         contenedor_partido.visible = (indice == 2)
@@ -832,34 +835,27 @@ def main(page: ft.Page):
             contenedor_minutos.content = view_minutos()
         page.update()
 
-    bottom_nav = ft.Container(
+    # 1. Usar la barra de navegación nativa (Siempre visible abajo)
+    page.navigation_bar = ft.NavigationBar(
+        selected_index=0,
         bgcolor=ft.Colors.GREY_900,
-        padding=5,
-        content=ft.Row(
-            controls=[
-                ft.IconButton(icon=ft.Icons.SETTINGS, on_click=lambda e: cambiar_pantalla(0), tooltip="Configuración"),
-                ft.IconButton(icon=ft.Icons.PEOPLE, on_click=lambda e: cambiar_pantalla(1), tooltip="Plantel"),
-                ft.IconButton(icon=ft.Icons.SPORTS_SOCCER, on_click=lambda e: cambiar_pantalla(2), tooltip="Partido"),
-                ft.IconButton(icon=ft.Icons.BAR_CHART, on_click=lambda e: cambiar_pantalla(3), tooltip="Ranking"),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_AROUND,
-        ),
+        on_change=cambiar_pantalla,
+        destinations=[
+            ft.NavigationDestination(icon=ft.Icons.SETTINGS, label="Config"),
+            ft.NavigationDestination(icon=ft.Icons.PEOPLE, label="Plantel"),
+            ft.NavigationDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
+            ft.NavigationDestination(icon=ft.Icons.BAR_CHART, label="Ranking"),
+        ]
     )
 
+    # 2. Quitar 'height=800' y usar 'expand=True'
     app_layout = ft.Container(
         width=400,
-        height=800,
+        expand=True,  # Esto permite que se adapte al alto exacto del celular
         bgcolor=ft.Colors.BLACK,
-        content=ft.Column(
-            controls=[
-                ft.Stack(
-                    controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
-                    expand=True,
-                ),
-                bottom_nav,
-            ],
+        content=ft.Stack(
+            controls=[contenedor_config, contenedor_plantel, contenedor_partido, contenedor_minutos],
             expand=True,
-            spacing=0,
         ),
     )
 

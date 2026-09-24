@@ -1,0 +1,119 @@
+{
+    "segundos": 1200,
+    "goles_local": 3,
+    "goles_rival": 2,
+    "partidos": [
+        {
+            "id": 1,
+            "equipo_rival": "Rival FC",
+            "tiempos_por_partido": 2,
+            "minutos_por_tiempo": 10,
+            "jugadores_en_cancha": 7
+        },
+        {
+            "id": 1790188934,
+            "equipo_rival": "Rival 2",
+            "tiempos_por_partido": 2,
+            "minutos_por_tiempo": 10,
+            "jugadores_en_cancha": 7
+        },
+        {
+            "id": 1790188939,
+            "equipo_rival": "Rival 3",
+            "tiempos_por_partido": 2,
+            "minutos_por_tiempo": 10,
+            "jugadores_en_cancha": 7
+        }
+    ],
+    "partido_activo_id": 1,
+    "minutos_jugadores": {
+        "Martín - Titin": 1200,
+        "ignacio Navarrete - Nacho": 332,
+        "Santi espinoza - Santi": 600,
+        "Tomi Villena": 1200,
+        "Benjamin Nieto - Benja": 600,
+        "Tommy Lioret - Tommy": 1200,
+        "Renato. Rena": 1200,
+        "Tomi castillo - Tomás C -": 868,
+        "Gaspar Roblero - Gaspy": 600,
+        "Joaquin Caceres": 0,
+        "Laura Navarrete": 600,
+        "Igna": 0
+    },
+    "minutos_partido_actual": {
+        "Martín - Titin": 1200,
+        "ignacio Navarrete - Nacho": 332,
+        "Santi espinoza - Santi": 600,
+        "Tomi Villena": 1200,
+        "Benjamin Nieto - Benja": 600,
+        "Tommy Lioret - Tommy": 1200,
+        "Renato. Rena": 1200,
+        "Tomi castillo - Tomás C -": 868,
+        "Gaspar Roblero - Gaspy": 600,
+        "Joaquin Caceres": 0,
+        "Laura Navarrete": 600,
+        "Igna": 0
+    },
+    "config": {
+        "equipo_rival": "Rival FC",
+        "tiempos_por_partido": 2,
+        "minutos_por_tiempo": 10,
+        "jugadores_en_cancha": 7
+    },
+    "titulares_seleccionados": [
+        "Martín - Titin",
+        "Tomi Villena",
+        "Tommy Lioret - Tommy",
+        "Renato. Rena",
+        "Tomi castillo - Tomás C -",
+        "Gaspar Roblero - Gaspy",
+        "Laura Navarrete"
+    ],
+    "eventos_registrados": [
+        {
+            "minuto": "01'",
+            "evento": "Gol",
+            "jugador": "Gol de Benjamin Nieto - Benja"
+        },
+        {
+            "minuto": "02'",
+            "evento": "Gol",
+            "jugador": "Gol de Rival FC"
+        },
+        {
+            "minuto": "03'",
+            "evento": "Gol",
+            "jugador": "Gol de Tommy Lioret - Tommy"
+        },
+        {
+            "minuto": "05'",
+            "evento": "Cambio",
+            "jugador": "Sale ignacio Navarrete - Nacho ➔ Entra Tomi castillo - Tomás C -"
+        },
+        {
+            "minuto": "05'",
+            "evento": "Gol",
+            "jugador": "Gol de Tomi Villena"
+        },
+        {
+            "minuto": "09'",
+            "evento": "Tarjeta Amarilla",
+            "jugador": "Renato. Rena"
+        },
+        {
+            "minuto": "10'",
+            "evento": "Cambio",
+            "jugador": "Sale Benjamin Nieto - Benja ➔ Entra Gaspar Roblero - Gaspy"
+        },
+        {
+            "minuto": "10'",
+            "evento": "Cambio",
+            "jugador": "Sale Santi espinoza - Santi ➔ Entra Laura Navarrete"
+        },
+        {
+            "minuto": "12'",
+            "evento": "Gol",
+            "jugador": "Gol de Rival FC"
+        }
+    ]
+}
