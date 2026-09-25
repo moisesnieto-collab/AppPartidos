@@ -114,7 +114,6 @@ def inicializar_bd():
             )
         """)
 
-        # Migración automática para asegurar columnas existentes y retrocompatibilidad
         columnas_requeridas = [
             ("grupo_id", "INTEGER"),
             ("fecha", "TEXT DEFAULT ''"),
@@ -362,7 +361,6 @@ def main(page: ft.Page):
         try:
             cursor = conn.cursor()
 
-            # Insertar grupo
             cursor.execute(
                 "INSERT INTO grupos (nombre, fecha, equipo_principal, equipos_json) VALUES (?, ?, ?, ?)",
                 (
@@ -374,7 +372,6 @@ def main(page: ft.Page):
             )
             grupo_id = cursor.lastrowid
 
-            # Generar combinatoria de partidos (Round-Robin)
             parejas = list(itertools.combinations(lista_equipos, 2))
             for loc, vis in parejas:
                 es_principal = 1 if (loc == equipo_principal or vis == equipo_principal) else 0
@@ -479,6 +476,74 @@ def main(page: ft.Page):
                 p["jugado"] = True
                 break
 
+    # --- FUNCIÓN DE SINCRONIZACIÓN DESDE BASE DE DATOS (MULTI-DISPOSITIVO) ---
+    def sincronizar_desde_bd():
+        if estado["partido_activo_id"] is None:
+            return False
+
+        p_act = next(
+            (p for p in estado["partidos_grupo"] if p["id"] == estado["partido_activo_id"]),
+            None,
+        )
+        if not p_act:
+            return False
+
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT goles_local, goles_visita, segundos, segundos_acumulados,
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado
+                FROM partidos WHERE id=?
+            """,
+                (estado["partido_activo_id"],),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            g_loc_db, g_vis_db, segs_db, segs_acum_db, h_inicio_db, tit_db, ev_db, min_db, fin_db = row
+
+            eq_principal = estado["config"]["equipo_principal"]
+            es_local = p_act["equipo_local"] == eq_principal
+
+            goles_loc_esperados = g_loc_db if es_local else g_vis_db
+            goles_riv_esperados = g_vis_db if es_local else g_loc_db
+            titulares_esperados = json.loads(tit_db or '[]')
+            eventos_esperados = json.loads(ev_db or '[]')
+            minutos_esperados = json.loads(min_db or '{}')
+            fin_esperado = bool(fin_db)
+
+            # Verificar si hubo cambios externos realizados desde otro dispositivo
+            hubo_cambio = (
+                estado["goles_local"] != goles_loc_esperados or
+                estado["goles_rival"] != goles_riv_esperados or
+                estado["hora_inicio"] != h_inicio_db or
+                estado["finalizado"] != fin_esperado or
+                len(estado["eventos_registrados"]) != len(eventos_esperados) or
+                estado["titulares_seleccionados"] != titulares_esperados
+            )
+
+            if hubo_cambio:
+                estado["goles_local"] = goles_loc_esperados
+                estado["goles_rival"] = goles_riv_esperados
+                estado["hora_inicio"] = h_inicio_db
+                estado["corriendo"] = h_inicio_db is not None
+                estado["segundos_acumulados"] = segs_acum_db
+                estado["titulares_seleccionados"] = titulares_esperados
+                estado["eventos_registrados"] = eventos_esperados
+                estado["minutos_partido_actual"] = minutos_esperados
+                estado["finalizado"] = fin_esperado
+                estado["segundos"] = obtener_segundos_actuales(estado)
+                estado["ultimo_segundo_procesado"] = estado["segundos"]
+                return True
+            return False
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
     def reiniciar_base_datos():
         conn = conectar_bd()
         try:
@@ -572,7 +637,7 @@ def main(page: ft.Page):
 
     cargar_datos_grupo()
 
-    # --- LOOP DEL CRONÓMETRO ---
+    # --- LOOP DEL CRONÓMETRO Y POLLING MULTI-DISPOSITIVO ---
     async def loop_reloj():
         contador_sync = 0
         while True:
@@ -624,9 +689,13 @@ def main(page: ft.Page):
                     contenedor_plantel.content = view_plantel()
 
             contador_sync += 1
-            if contador_sync >= 5:
+            if contador_sync >= 3:
                 if estado["corriendo"]:
                     guardar_estado_partido_activo()
+
+                # Sincronizar periódicamente desde Turso BD por cambios externos
+                if sincronizar_desde_bd():
+                    refrescar_vistas()
                 contador_sync = 0
 
             try:
@@ -739,7 +808,6 @@ def main(page: ft.Page):
             dialogo_reset.open = True
             page.update()
 
-        # --- CONSTRUCCIÓN TABLA DE POSICIONES DEL GRUPO ---
         componente_tabla = ft.Container()
         if estado["grupo_activo"] and estado["partidos_grupo"]:
             grupo = estado["grupo_activo"]
@@ -976,7 +1044,6 @@ def main(page: ft.Page):
                 border=ft.border.all(1, COLOR_CELESTE),
             )
 
-        # --- SECCIÓN 2: HISTORIAL PARTIDOS EQUIPO PRINCIPAL ---
         partidos_mi_equipo_ui = []
         partidos_rivales_ui = []
 
@@ -1565,6 +1632,7 @@ def main(page: ft.Page):
                 texto_alerta_cambio.value = "⏱️ Partido en marcha"
                 texto_alerta_cambio.color = COLOR_VERDE
                 guardar_estado_partido_activo()
+                refrescar_vistas()
                 page.update()
 
         def pausar_reloj(e):
@@ -1580,6 +1648,7 @@ def main(page: ft.Page):
                 texto_alerta_cambio.value = "⏸️ Partido pausado"
                 texto_alerta_cambio.color = COLOR_AMBAR
                 guardar_estado_partido_activo()
+                refrescar_vistas()
                 page.update()
 
         def alternar_finalizacion(e):
@@ -1718,8 +1787,74 @@ def main(page: ft.Page):
                 })
 
             guardar_estado_partido_activo()
-            contenedor_partido.content = view_partido()
+            refrescar_vistas()
             page.update()
+
+        def crear_handler_eliminar_evento(ev_obj):
+            def handler(e):
+                if ev_obj in estado["eventos_registrados"]:
+                    estado["eventos_registrados"].remove(ev_obj)
+                    if ev_obj.get("evento") == "Gol":
+                        if "Equipo Rival" in ev_obj.get("jugador", "") or estado['config']['equipo_rival'] in ev_obj.get("jugador", ""):
+                            estado["goles_rival"] = max(0, estado["goles_rival"] - 1)
+                        else:
+                            estado["goles_local"] = max(0, estado["goles_local"] - 1)
+                    guardar_estado_partido_activo()
+                    refrescar_vistas()
+                    page.update()
+            return handler
+
+        # --- CONSTRUCCIÓN VISUAL DEL HISTORIAL DE EVENTOS ---
+        eventos_ui = []
+        if estado["eventos_registrados"]:
+            for ev in reversed(estado["eventos_registrados"]):
+                minuto = ev.get("minuto", "00'")
+                tipo = ev.get("evento", "Evento")
+                jug = ev.get("jugador", "")
+
+                icono = ft.Icons.SPORTS_SOCCER if tipo == "Gol" else (
+                    ft.Icons.SWAP_HORIZ if tipo == "Cambio" else (
+                        ft.Icons.STYLE if "Tarjeta" in tipo else ft.Icons.CHECK_CIRCLE
+                    )
+                )
+                color_ev = COLOR_VERDE if tipo == "Gol" else (
+                    COLOR_CELESTE if tipo == "Cambio" else (
+                        COLOR_AMBAR if "Amarilla" in tipo else COLOR_ROJO
+                    )
+                )
+
+                card_ev = ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Icon(icono, color=color_ev, size=18),
+                                    ft.Text(f"[{minuto}]", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE, size=12),
+                                    ft.Text(f"{tipo}: {jug}", color=COLOR_TEXTO, size=13, weight=ft.FontWeight.W_500),
+                                ],
+                                spacing=8,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINED,
+                                icon_color=COLOR_ROJO,
+                                icon_size=16,
+                                disabled=es_fin,
+                                tooltip="Eliminar evento",
+                                on_click=crear_handler_eliminar_evento(ev)
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    padding=ft.Padding(8, 4, 8, 4),
+                    bgcolor=COLOR_TARJETA,
+                    border_radius=8,
+                    border=ft.border.all(1, COLOR_BORDE),
+                )
+                eventos_ui.append(card_ev)
+        else:
+            eventos_ui.append(
+                ft.Text("Aún no se registran eventos en este partido", color=COLOR_SUBTEXTO, size=12)
+            )
 
         return ft.Column(
             [
@@ -1794,6 +1929,13 @@ def main(page: ft.Page):
                     on_click=registrar_evento_click,
                 ),
                 texto_status_evento,
+                ft.Divider(height=5, color=COLOR_BORDE),
+                ft.Text(
+                    "📜 Historial de Eventos del Partido",
+                    weight=ft.FontWeight.BOLD,
+                    color=COLOR_CELESTE,
+                ),
+                ft.Column(controls=eventos_ui, spacing=6),
             ],
             scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
