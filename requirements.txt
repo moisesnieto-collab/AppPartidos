@@ -1,4 +1,5 @@
 flet==0.28.3
 flet-audio
+libsql-experimental
 pandas
 openpyxl
