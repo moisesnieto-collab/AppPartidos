@@ -83,7 +83,6 @@ def inicializar_bd():
         )
     """)
 
-    # Migración en caso de que la BD no contenga la columna 'finalizado'
     try:
         cursor.execute("ALTER TABLE partidos ADD COLUMN finalizado INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
@@ -131,7 +130,6 @@ def main(page: ft.Page):
     }
 
     # --- CONSULTAS Y OPERACIONES BD ---
-
     def obtener_jugadores_bd():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -263,7 +261,6 @@ def main(page: ft.Page):
         conn.commit()
         conn.close()
 
-        # Actualizar lista en memoria para sincronización inmediata
         for p in estado["partidos"]:
             if p["id"] == estado["partido_activo_id"]:
                 p["goles_local"] = estado["goles_local"]
@@ -581,7 +578,7 @@ def main(page: ft.Page):
             spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
         )
 
-    # --- PANTALLA 2: PLANTEL (CON VALIDACIONES) ---
+    # --- PANTALLA 2: PLANTEL ---
     def view_plantel():
         jugadores = obtener_jugadores_bd()
         max_titulares = estado["config"]["jugadores_en_cancha"]
@@ -608,7 +605,6 @@ def main(page: ft.Page):
                     texto_status_jugador.color = COLOR_ROJO
                 page.update()
 
-        # Validación con alerta antes de eliminar jugador
         def pedir_confirmacion_borrado(nom_jugador):
             minutos_totales = obtener_minutos_totales_bd()
             mins = minutos_totales.get(nom_jugador, 0) // 60
@@ -753,7 +749,7 @@ def main(page: ft.Page):
             scroll=ft.ScrollMode.AUTO, expand=True, spacing=8
         )
 
-    # --- PANTALLA 3: PARTIDO EN VIVO (CON MODO SOLO LECTURA Y FINALIZACIÓN) ---
+    # --- PANTALLA 3: PARTIDO EN VIVO ---
     def view_partido():
         texto_reloj.value = formatear_tiempo(estado["segundos"])
         jugadores = obtener_jugadores_bd()
@@ -1088,7 +1084,6 @@ def main(page: ft.Page):
                 texto_export.value = f"❌ Error exportando: {ex}"
             page.update()
 
-        # Ordenar de menor a mayor minutos acumulados
         jugadores_ordenados = sorted(
             jugadores,
             key=lambda x: minutos_acumulados_bd.get(x["nombre"], 0),
@@ -1135,13 +1130,14 @@ def main(page: ft.Page):
             expand=True,
         )
 
-    # --- PANTALLA 5: RESUMEN DIARIO DE TODOS LOS PARTIDOS DEL DÍA ---
+    # --- PANTALLA 5: RESUMEN / TABLA DE POSICIONES DUNALASTAIR ---
     def view_resumen():
         cargar_partidos_bd()
 
-        fecha_filtro = datetime.now().strftime("%Y-%m-%d")
+        # Por defecto muestra TODO el historial, si se ingresa fecha filtra la jornada.
+        fecha_filtro = ""
         tf_fecha_filtro = ft.TextField(
-            label="Filtrar por fecha (AAAA-MM-DD)",
+            label="Filtrar por fecha (Vacío = Todos los partidos)",
             value=fecha_filtro,
             expand=True,
             border_color=COLOR_BORDE,
@@ -1164,7 +1160,7 @@ def main(page: ft.Page):
 
         return ft.Column(
             [
-                ft.Text("📅 Resumen Diario de Jornada", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                ft.Text("🏆 Tabla de Posiciones de Equipo", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
                 ft.Row([tf_fecha_filtro, btn_buscar]),
                 ft.Divider(height=5, color=COLOR_BORDE),
                 view_resumen_contenido(fecha_filtro),
@@ -1173,15 +1169,20 @@ def main(page: ft.Page):
             scroll=ft.ScrollMode.AUTO,
         )
 
-    def view_resumen_contenido(fecha):
-        partidos_dia = [p for p in estado["partidos"] if p["fecha"] == fecha]
+    def view_resumen_contenido(fecha=""):
+        if fecha:
+            partidos_mostrar = [p for p in estado["partidos"] if p["fecha"] == fecha]
+            titulo = f"📊 Tabla de Posiciones ({fecha})"
+        else:
+            partidos_mostrar = estado["partidos"]
+            titulo = "📊 Tabla de Posiciones (Histórico Total)"
 
-        if not partidos_dia:
+        if not partidos_mostrar:
             return ft.Container(
                 content=ft.Column(
                     [
                         ft.Icon(ft.Icons.EVENT_BUSY, size=40, color=COLOR_SUBTEXTO),
-                        ft.Text(f"No hay partidos registrados el {fecha}", color=COLOR_SUBTEXTO, size=14),
+                        ft.Text("No hay partidos registrados", color=COLOR_SUBTEXTO, size=14),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=6,
@@ -1189,16 +1190,17 @@ def main(page: ft.Page):
                 padding=20, alignment=ft.Alignment(0, 0)
             )
 
-        total_partidos = len(partidos_dia)
-        goles_favor = sum(p["goles_local"] for p in partidos_dia)
-        goles_contra = sum(p["goles_rival"] for p in partidos_dia)
-        victorias = sum(1 for p in partidos_dia if p["goles_local"] > p["goles_rival"])
-        empates = sum(1 for p in partidos_dia if p["goles_local"] == p["goles_rival"])
-        derrotas = sum(1 for p in partidos_dia if p["goles_local"] < p["goles_rival"])
+        total_partidos = len(partidos_mostrar)
+        victorias = sum(1 for p in partidos_mostrar if p["goles_local"] > p["goles_rival"])
+        empates = sum(1 for p in partidos_mostrar if p["goles_local"] == p["goles_rival"])
+        derrotas = sum(1 for p in partidos_mostrar if p["goles_local"] < p["goles_rival"])
+        goles_favor = sum(p["goles_local"] for p in partidos_mostrar)
+        goles_contra = sum(p["goles_rival"] for p in partidos_mostrar)
+        diferencia = goles_favor - goles_contra
+        puntos = (victorias * 3) + (empates * 1)
 
-        # Conteo de goleadores de la jornada
         goleadores = {}
-        for p in partidos_dia:
+        for p in partidos_mostrar:
             for ev in p["eventos"]:
                 if ev.get("evento") == "Gol":
                     txt = ev.get("jugador", "")
@@ -1212,34 +1214,59 @@ def main(page: ft.Page):
             mejores = [k for k, v in goleadores.items() if v == max_goles]
             top_goleador_str = f"{', '.join(mejores)} ({max_goles} goles)"
 
+        tabla_posiciones = ft.DataTable(
+            columns=[
+                ft.DataColumn(label=ft.Text("Pos", weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO)),
+                ft.DataColumn(label=ft.Text("Equipo", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)),
+                ft.DataColumn(label=ft.Text("PJ", weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO)),
+                ft.DataColumn(label=ft.Text("PG", weight=ft.FontWeight.BOLD, color=COLOR_VERDE)),
+                ft.DataColumn(label=ft.Text("PE", weight=ft.FontWeight.BOLD, color=COLOR_AMBAR)),
+                ft.DataColumn(label=ft.Text("PP", weight=ft.FontWeight.BOLD, color=COLOR_ROJO)),
+                ft.DataColumn(label=ft.Text("GF", weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO)),
+                ft.DataColumn(label=ft.Text("GE", weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO)),
+                ft.DataColumn(label=ft.Text("DG", weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO)),
+                ft.DataColumn(label=ft.Text("Pts", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)),
+            ],
+            rows=[
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(content=ft.Text("1", color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text("Dunalastairs", weight=ft.FontWeight.BOLD, color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(total_partidos), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(victorias), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(empates), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(derrotas), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(goles_favor), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(goles_contra), color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(f"{diferencia:+d}", color=COLOR_TEXTO)),
+                        ft.DataCell(content=ft.Text(str(puntos), weight=ft.FontWeight.BOLD, color=COLOR_VERDE)),
+                    ]
+                )
+            ],
+            bgcolor=COLOR_FONDO,
+            border=ft.border.all(1, COLOR_BORDE),
+            border_radius=8,
+            column_spacing=18,
+            heading_row_height=40,
+            data_row_min_height=40,
+            data_row_max_height=40,
+        )
+
         tarjeta_resumen_global = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(f"📊 Balance del Día ({fecha})", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE, size=14),
-                    ft.Row(
-                        [
-                            ft.Column([ft.Text("Partidos", size=10, color=COLOR_SUBTEXTO), ft.Text(str(total_partidos), weight=ft.FontWeight.BOLD, size=18)]),
-                            ft.Column([ft.Text("Goles Favor", size=10, color=COLOR_SUBTEXTO), ft.Text(str(goles_favor), weight=ft.FontWeight.BOLD, size=18, color=COLOR_VERDE)]),
-                            ft.Column([ft.Text("Goles Contra", size=10, color=COLOR_SUBTEXTO), ft.Text(str(goles_contra), weight=ft.FontWeight.BOLD, size=18, color=COLOR_ROJO)]),
-                            ft.Column([ft.Text("Diferencia", size=10, color=COLOR_SUBTEXTO), ft.Text(f"{goles_favor - goles_contra:+d}", weight=ft.FontWeight.BOLD, size=18, color=COLOR_CELESTE)]),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_AROUND,
-                    ),
-                    ft.Row(
-                        [
-                            ft.Text(f"🏆 Récord: {victorias}V - {empates}E - {derrotas}D", size=12, color=COLOR_TEXTO, weight=ft.FontWeight.W_500),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    ft.Text(f"⚽ Goleador(es) del Día: {top_goleador_str}", size=11, color=COLOR_AMBAR, weight=ft.FontWeight.BOLD),
+                    ft.Text(titulo, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE, size=14),
+                    # Scroll Horizontal por si la pantalla del móvil es pequeña
+                    ft.Row([tabla_posiciones], scroll=ft.ScrollMode.ALWAYS),
+                    ft.Text(f"⚽ Goleador(es): {top_goleador_str}", size=13, color=COLOR_AMBAR, weight=ft.FontWeight.BOLD),
                 ],
-                spacing=8,
+                spacing=12,
             ),
             padding=14, bgcolor=COLOR_TARJETA, border_radius=14, border=ft.border.all(1, COLOR_CELESTE)
         )
 
         tarjetas_partidos = []
-        for i, p in enumerate(partidos_dia, 1):
+        for i, p in enumerate(partidos_mostrar, 1):
             eventos_goles = [ev for ev in p["eventos"] if ev.get("evento") == "Gol"]
             eventos_tarjetas = [ev for ev in p["eventos"] if "Tarjeta" in ev.get("evento", "")]
 
@@ -1257,7 +1284,7 @@ def main(page: ft.Page):
                     [
                         ft.Row(
                             [
-                                ft.Text(f"Partido #{i}: vs {p['equipo_rival']}", weight=ft.FontWeight.BOLD, size=14, color=COLOR_TEXTO),
+                                ft.Text(f"{p['fecha']} | vs {p['equipo_rival']}", weight=ft.FontWeight.BOLD, size=14, color=COLOR_TEXTO),
                                 ft.Text(f"{p['goles_local']} - {p['goles_rival']}", weight=ft.FontWeight.BOLD, size=18, color=COLOR_CELESTE),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
