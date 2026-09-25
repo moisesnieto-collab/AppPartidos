@@ -25,7 +25,7 @@ TURSO_URL = os.environ.get(
 )
 TURSO_TOKEN = os.environ.get(
     "TURSO_TOKEN",
-    "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAzNjY4NTMsImlkIjoiMDFhMGQ4NzctNzEwMS03NjMyLThiOWYtY2ExOWMzYmI1NDc3Iiwia2lkIjoiTDl6UGpCZkwtX2JXbzVlZWl3RElTcUZ2TFIwNms2c2Z2RGRDRTV3Q20wUSIsInJpZCI6IjUwMzI1MGM2LWFlNzgtNGZkMC1iZTg2LWY1YzkxOGE4NDFjNCJ9.pXfps5BnwJYUHwCwOd5haY34XbKwq0Kyw2uGH1C_GMlPq4g8XTEI7Nqlx5_2o-C6rj8qdxP7qGz0GGS5WipKAw",
+    "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAzNzExODgsImlkIjoiMDFhMGQ4NzctNzEwMS03NjMyLThiOWYtY2ExOWMzYmI1NDc3Iiwia2lkIjoiTDl6UGpCZkwtX2JXbzVlZWl3RElTcUZ2TFIwNms2c2Z2RGRDRTV3Q20wUSIsInJpZCI6IjUwMzI1MGM2LWFlNzgtNGZkMC1iZTg2LWY1YzkxOGE4NDFjNCJ9.Ursf6e9lJOKaW8M4WlKrRR8-zQ7AawCdSBUsCsHHuTv6WO2nkZKAOYFdGPnoIUxSX4GCETEi6RdF07eSDc4bAQ",
 )
 
 
@@ -187,6 +187,8 @@ def main(page: ft.Page):
         "hora_inicio": None,
         "corriendo": False,
         "finalizado": False,
+        "alerta_custom": None,
+        "pestana_activa": 0,
         "goles_local": 0,
         "goles_rival": 0,
         "partidos_grupo": [],
@@ -211,6 +213,23 @@ def main(page: ft.Page):
     texto_alerta_cambio = ft.Text(
         "Partido listo", weight=ft.FontWeight.W_600, color=COLOR_SUBTEXTO
     )
+
+    def actualizar_glosa():
+        if estado["finalizado"]:
+            texto_alerta_cambio.value = "🔒 PARTIDO FINALIZADO (Solo Lectura)"
+            texto_alerta_cambio.color = COLOR_ROJO
+        elif estado.get("alerta_custom"):
+            texto_alerta_cambio.value = estado["alerta_custom"]
+            texto_alerta_cambio.color = COLOR_AMBAR
+        elif estado["corriendo"]:
+            texto_alerta_cambio.value = "⏱️ Partido en marcha"
+            texto_alerta_cambio.color = COLOR_VERDE
+        elif estado["segundos"] > 0:
+            texto_alerta_cambio.value = "⏸️ Partido pausado"
+            texto_alerta_cambio.color = COLOR_AMBAR
+        else:
+            texto_alerta_cambio.value = "Partido listo"
+            texto_alerta_cambio.color = COLOR_SUBTEXTO
 
     def formatear_tiempo(segs):
         return f"{segs // 60:02d}:{segs % 60:02d}"
@@ -322,6 +341,12 @@ def main(page: ft.Page):
 
                 lista_partidos = []
                 for r in rows_partidos:
+                    evs = json.loads(r[15] or '[]')
+                    alerta_persistida = None
+                    if isinstance(evs, dict):
+                        alerta_persistida = evs.get("alerta_custom")
+                        evs = evs.get("lista", [])
+
                     lista_partidos.append({
                         "id": r[0],
                         "grupo_id": r[1],
@@ -338,7 +363,8 @@ def main(page: ft.Page):
                         "segundos_acumulados": r[12],
                         "hora_inicio": r[13],
                         "titulares": json.loads(r[14] or '[]'),
-                        "eventos": json.loads(r[15] or '[]'),
+                        "eventos": evs,
+                        "alerta_custom": alerta_persistida,
                         "minutos_partido": json.loads(r[16] or '{}'),
                         "finalizado": bool(r[17]),
                         "jugado": bool(r[18]),
@@ -407,7 +433,7 @@ def main(page: ft.Page):
         finally:
             conn.close()
 
-        cargar_datos_grupo()
+        sincronizar_desde_bd()
 
     def guardar_estado_partido_activo():
         if estado["partido_activo_id"] is None:
@@ -429,6 +455,11 @@ def main(page: ft.Page):
         else:
             g_loc, g_vis = estado["goles_rival"], estado["goles_local"]
 
+        paquete_eventos = {
+            "lista": estado["eventos_registrados"],
+            "alerta_custom": estado["alerta_custom"],
+        }
+
         conn = conectar_bd()
         try:
             cursor = conn.cursor()
@@ -448,9 +479,7 @@ def main(page: ft.Page):
                     json.dumps(
                         estado["titulares_seleccionados"], ensure_ascii=False
                     ),
-                    json.dumps(
-                        estado["eventos_registrados"], ensure_ascii=False
-                    ),
+                    json.dumps(paquete_eventos, ensure_ascii=False),
                     json.dumps(
                         estado["minutos_partido_actual"], ensure_ascii=False
                     ),
@@ -471,6 +500,7 @@ def main(page: ft.Page):
                 p["hora_inicio"] = estado["hora_inicio"]
                 p["titulares"] = list(estado["titulares_seleccionados"])
                 p["eventos"] = list(estado["eventos_registrados"])
+                p["alerta_custom"] = estado["alerta_custom"]
                 p["minutos_partido"] = dict(estado["minutos_partido_actual"])
                 p["finalizado"] = estado["finalizado"]
                 p["jugado"] = True
@@ -478,14 +508,7 @@ def main(page: ft.Page):
 
     # --- FUNCIÓN DE SINCRONIZACIÓN DESDE BASE DE DATOS (MULTI-DISPOSITIVO) ---
     def sincronizar_desde_bd():
-        if estado["partido_activo_id"] is None:
-            return False
-
-        p_act = next(
-            (p for p in estado["partidos_grupo"] if p["id"] == estado["partido_activo_id"]),
-            None,
-        )
-        if not p_act:
+        if estado["grupo_activo"] is None or estado["partido_activo_id"] is None:
             return False
 
         conn = conectar_bd()
@@ -493,52 +516,90 @@ def main(page: ft.Page):
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT goles_local, goles_visita, segundos, segundos_acumulados,
-                       hora_inicio, titulares, eventos, minutos_partido, finalizado
-                FROM partidos WHERE id=?
+                SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
+                       tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
+                       goles_local, goles_visita, segundos, segundos_acumulados,
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado
+                FROM partidos WHERE grupo_id=? ORDER BY id ASC
             """,
-                (estado["partido_activo_id"],),
+                (estado["grupo_activo"]["id"],),
             )
-            row = cursor.fetchone()
-            if not row:
+            rows = cursor.fetchall()
+            if not rows:
                 return False
 
-            g_loc_db, g_vis_db, segs_db, segs_acum_db, h_inicio_db, tit_db, ev_db, min_db, fin_db = row
+            hubo_cambio = False
+            nuevos_partidos = []
 
-            eq_principal = estado["config"]["equipo_principal"]
-            es_local = p_act["equipo_local"] == eq_principal
+            for r in rows:
+                p_id = r[0]
+                evs = json.loads(r[15] or '[]')
+                alerta_persistida = None
+                if isinstance(evs, dict):
+                    alerta_persistida = evs.get("alerta_custom")
+                    evs = evs.get("lista", [])
 
-            goles_loc_esperados = g_loc_db if es_local else g_vis_db
-            goles_riv_esperados = g_vis_db if es_local else g_loc_db
-            titulares_esperados = json.loads(tit_db or '[]')
-            eventos_esperados = json.loads(ev_db or '[]')
-            minutos_esperados = json.loads(min_db or '{}')
-            fin_esperado = bool(fin_db)
+                p_dict = {
+                    "id": r[0],
+                    "grupo_id": r[1],
+                    "fecha": r[2],
+                    "equipo_local": r[3],
+                    "equipo_visita": r[4],
+                    "es_principal": bool(r[5]),
+                    "tiempos_por_partido": r[6],
+                    "minutos_por_tiempo": r[7],
+                    "jugadores_en_cancha": r[8],
+                    "goles_local": r[9],
+                    "goles_visita": r[10],
+                    "segundos": r[11],
+                    "segundos_acumulados": r[12],
+                    "hora_inicio": r[13],
+                    "titulares": json.loads(r[14] or '[]'),
+                    "eventos": evs,
+                    "alerta_custom": alerta_persistida,
+                    "minutos_partido": json.loads(r[16] or '{}'),
+                    "finalizado": bool(r[17]),
+                    "jugado": bool(r[18]),
+                }
+                nuevos_partidos.append(p_dict)
 
-            # Verificar si hubo cambios externos realizados desde otro dispositivo
-            hubo_cambio = (
-                estado["goles_local"] != goles_loc_esperados or
-                estado["goles_rival"] != goles_riv_esperados or
-                estado["hora_inicio"] != h_inicio_db or
-                estado["finalizado"] != fin_esperado or
-                len(estado["eventos_registrados"]) != len(eventos_esperados) or
-                estado["titulares_seleccionados"] != titulares_esperados
-            )
+                if p_id == estado["partido_activo_id"]:
+                    eq_principal = estado["config"]["equipo_principal"]
+                    es_local = p_dict["equipo_local"] == eq_principal
 
-            if hubo_cambio:
-                estado["goles_local"] = goles_loc_esperados
-                estado["goles_rival"] = goles_riv_esperados
-                estado["hora_inicio"] = h_inicio_db
-                estado["corriendo"] = h_inicio_db is not None
-                estado["segundos_acumulados"] = segs_acum_db
-                estado["titulares_seleccionados"] = titulares_esperados
-                estado["eventos_registrados"] = eventos_esperados
-                estado["minutos_partido_actual"] = minutos_esperados
-                estado["finalizado"] = fin_esperado
-                estado["segundos"] = obtener_segundos_actuales(estado)
-                estado["ultimo_segundo_procesado"] = estado["segundos"]
-                return True
-            return False
+                    goles_loc_esperados = p_dict["goles_local"] if es_local else p_dict["goles_visita"]
+                    goles_riv_esperados = p_dict["goles_visita"] if es_local else p_dict["goles_local"]
+
+                    if (
+                        estado["goles_local"] != goles_loc_esperados or
+                        estado["goles_rival"] != goles_riv_esperados or
+                        estado["hora_inicio"] != p_dict["hora_inicio"] or
+                        estado["segundos_acumulados"] != p_dict["segundos_acumulados"] or
+                        estado["finalizado"] != p_dict["finalizado"] or
+                        estado["eventos_registrados"] != p_dict["eventos"] or
+                        estado["titulares_seleccionados"] != p_dict["titulares"] or
+                        estado["alerta_custom"] != p_dict["alerta_custom"]
+                    ):
+                        hubo_cambio = True
+                        estado["goles_local"] = goles_loc_esperados
+                        estado["goles_rival"] = goles_riv_esperados
+                        estado["hora_inicio"] = p_dict["hora_inicio"]
+                        estado["corriendo"] = p_dict["hora_inicio"] is not None
+                        estado["segundos_acumulados"] = p_dict["segundos_acumulados"]
+                        estado["titulares_seleccionados"] = list(p_dict["titulares"])
+                        estado["eventos_registrados"] = list(p_dict["eventos"])
+                        estado["alerta_custom"] = p_dict["alerta_custom"]
+                        estado["minutos_partido_actual"] = dict(p_dict["minutos_partido"])
+                        estado["finalizado"] = p_dict["finalizado"]
+                        estado["segundos"] = obtener_segundos_actuales(estado)
+                        estado["ultimo_segundo_procesado"] = estado["segundos"]
+                        actualizar_glosa()
+
+            if estado["partidos_grupo"] != nuevos_partidos:
+                estado["partidos_grupo"] = nuevos_partidos
+                hubo_cambio = True
+
+            return hubo_cambio
         except Exception:
             return False
         finally:
@@ -584,6 +645,7 @@ def main(page: ft.Page):
         estado["ultimo_segundo_procesado"] = estado["segundos"]
         estado["titulares_seleccionados"] = list(partido["titulares"])
         estado["eventos_registrados"] = list(partido["eventos"])
+        estado["alerta_custom"] = partido.get("alerta_custom")
         estado["minutos_partido_actual"] = dict(partido["minutos_partido"])
         estado["finalizado"] = bool(partido.get("finalizado", False))
 
@@ -596,18 +658,7 @@ def main(page: ft.Page):
         })
 
         texto_reloj.value = formatear_tiempo(estado["segundos"])
-        if estado["finalizado"]:
-            texto_alerta_cambio.value = "🔒 PARTIDO FINALIZADO (Solo Lectura)"
-            texto_alerta_cambio.color = COLOR_ROJO
-        elif estado["corriendo"]:
-            texto_alerta_cambio.value = "⏱️ Partido en marcha"
-            texto_alerta_cambio.color = COLOR_VERDE
-        elif estado["segundos"] > 0:
-            texto_alerta_cambio.value = "⏸️ Partido pausado"
-            texto_alerta_cambio.color = COLOR_AMBAR
-        else:
-            texto_alerta_cambio.value = "Partido listo"
-            texto_alerta_cambio.color = COLOR_SUBTEXTO
+        actualizar_glosa()
 
     def obtener_minutos_totales_bd():
         actualizar_minutos_jugadores()
@@ -662,8 +713,8 @@ def main(page: ft.Page):
                     estado["segundos_acumulados"] = duracion_total_partido
                     estado["segundos"] = duracion_total_partido
                     estado["hora_inicio"] = None
-                    texto_alerta_cambio.value = "🏁 ¡PARTIDO FINALIZADO!"
-                    texto_alerta_cambio.color = COLOR_ROJO
+                    estado["alerta_custom"] = None
+                    actualizar_glosa()
                     guardar_estado_partido_activo()
                     refrescar_vistas()
 
@@ -677,23 +728,19 @@ def main(page: ft.Page):
                             estado["segundos_acumulados"] = limite_half
                             estado["segundos"] = limite_half
                             estado["hora_inicio"] = None
-                            texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO {t}! Cronómetro pausado."
-                            texto_alerta_cambio.color = COLOR_AMBAR
+                            estado["alerta_custom"] = f"🏁 ¡FIN DEL TIEMPO {t}! Cronómetro pausado."
+                            actualizar_glosa()
                             guardar_estado_partido_activo()
                             refrescar_vistas()
                             break
 
-                if contenedor_minutos.visible:
-                    contenedor_minutos.content = view_minutos()
-                elif contenedor_plantel.visible:
-                    contenedor_plantel.content = view_plantel()
-
             contador_sync += 1
-            if contador_sync >= 3:
-                if estado["corriendo"]:
-                    guardar_estado_partido_activo()
+            # Frecuencia de sincronización según pestaña activa:
+            # 0: Configuración & Tabla -> Cada 2 segundos (rápido)
+            # 1, 2, 3: Plantel, Partidos, Ranking -> Cada 10 segundos
+            intervalo_sync = 2 if estado["pestana_activa"] == 0 else 10
 
-                # Sincronizar periódicamente desde Turso BD por cambios externos
+            if contador_sync >= intervalo_sync:
                 if sincronizar_desde_bd():
                     refrescar_vistas()
                 contador_sync = 0
@@ -707,8 +754,6 @@ def main(page: ft.Page):
 
     # --- PANTALLA 1: CONFIGURACIÓN & TABLA DE POSICIONES ---
     def view_configuracion():
-        cargar_datos_grupo()
-
         tf_nombre_grupo = ft.TextField(
             label="Nombre del Grupo/Torneo",
             value="Grupo A - Cuadrangular",
@@ -1547,6 +1592,7 @@ def main(page: ft.Page):
     def view_partido():
         segs_actuales = obtener_segundos_actuales(estado)
         texto_reloj.value = formatear_tiempo(segs_actuales)
+        actualizar_glosa()
         jugadores = obtener_jugadores_bd()
 
         nombre_principal = estado["config"]["equipo_principal"]
@@ -1629,8 +1675,8 @@ def main(page: ft.Page):
                 estado["ultimo_segundo_procesado"] = estado[
                     "segundos_acumulados"
                 ]
-                texto_alerta_cambio.value = "⏱️ Partido en marcha"
-                texto_alerta_cambio.color = COLOR_VERDE
+                estado["alerta_custom"] = None
+                actualizar_glosa()
                 guardar_estado_partido_activo()
                 refrescar_vistas()
                 page.update()
@@ -1645,8 +1691,8 @@ def main(page: ft.Page):
                 estado["segundos"] = segs
                 estado["hora_inicio"] = None
                 estado["corriendo"] = False
-                texto_alerta_cambio.value = "⏸️ Partido pausado"
-                texto_alerta_cambio.color = COLOR_AMBAR
+                estado["alerta_custom"] = None
+                actualizar_glosa()
                 guardar_estado_partido_activo()
                 refrescar_vistas()
                 page.update()
@@ -1656,12 +1702,8 @@ def main(page: ft.Page):
                 pausar_reloj(None)
 
             estado["finalizado"] = not estado["finalizado"]
-            if estado["finalizado"]:
-                texto_alerta_cambio.value = "🔒 PARTIDO FINALIZADO"
-                texto_alerta_cambio.color = COLOR_ROJO
-            else:
-                texto_alerta_cambio.value = "🔓 Partido Reabierto para Edición"
-                texto_alerta_cambio.color = COLOR_VERDE
+            estado["alerta_custom"] = None
+            actualizar_glosa()
 
             guardar_estado_partido_activo()
             refrescar_vistas()
@@ -2079,6 +2121,7 @@ def main(page: ft.Page):
 
     def cambiar_pantalla(e):
         indice = e.control.selected_index
+        estado["pestana_activa"] = indice
         contenedor_config.visible = indice == 0
         contenedor_plantel.visible = indice == 1
         contenedor_partido.visible = indice == 2
