@@ -22,7 +22,8 @@ COLOR_AMBAR = "#FBBF24"
 TURSO_URL = os.environ.get("TURSO_URL", "libsql://apppartidos-mnieto.aws-us-east-2.turso.io")
 TURSO_TOKEN = os.environ.get(
     "TURSO_TOKEN",
-    "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAzNTY5NzksImlkIjoiMDFhMGQ4NzctNzEwMS03NjMyLThiOWYtY2ExOWMzYmI1NDc3Iiwia2lkIjoiTDl6UGpCZkwtX2JXbzVlZWl3RElTcUZ2TFIwNms2c2Z2RGRDRTV3Q20wUSIsInJpZCI6IjUwMzI1MGM2LWFlNzgtNGZkMC1iZTg2LWY1YzkxOGE4NDFjNCJ9.CWlcc_4mOQVn_Q-nZuss0s2bMypiuK4jbacNBflP7HcfUfYytOECWyv9RwQ1WnumBN0s_MV5Yo4UujsasFqIDA")
+    "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAzNTY5NzksImlkIjoiMDFhMGQ4NzctNzEwMS03NjMyLThiOWYtY2ExOWMzYmI1NDc3Iiwia2lkIjoiTDl6UGpCZkwtX2JXbzVlZWl3RElTcUZ2TFIwNms2c2Z2RGRDRTV3Q20wUSIsInJpZCI6IjUwMzI1MGM2LWFlNzgtNGZkMC1iZTg2LWY1YzkxOGE4NDFjNCJ9.CWlcc_4mOQVn_Q-nZuss0s2bMypiuK4jbacNBflP7HcfUfYytOECWyv9RwQ1WnumBN0s_MV5Yo4UujsasFqIDA",
+)
 
 
 def conectar_bd():
@@ -87,7 +88,7 @@ def inicializar_bd():
             segundos INTEGER DEFAULT 0,
             segundos_acumulados INTEGER DEFAULT 0,
             hora_inicio TEXT DEFAULT NULL,
-            updated_at TEXT DEFAULT (DATETIME('now')),
+            updated_at TEXT DEFAULT NULL,
             titulares TEXT DEFAULT '[]',
             eventos TEXT DEFAULT '[]',
             minutos_partido TEXT DEFAULT '{}',
@@ -95,12 +96,11 @@ def inicializar_bd():
         )
     """)
 
-    # Migraciones/compatibilidad para esquemas existentes
     columnas_migracion = [
         "ALTER TABLE partidos ADD COLUMN finalizado INTEGER DEFAULT 0",
         "ALTER TABLE partidos ADD COLUMN segundos_acumulados INTEGER DEFAULT 0",
         "ALTER TABLE partidos ADD COLUMN hora_inicio TEXT DEFAULT NULL",
-        "ALTER TABLE partidos ADD COLUMN updated_at TEXT DEFAULT (DATETIME('now'))",
+        "ALTER TABLE partidos ADD COLUMN updated_at TEXT DEFAULT NULL",
     ]
     for col_stmt in columnas_migracion:
         try:
@@ -166,6 +166,13 @@ def main(page: ft.Page):
             "fecha": datetime.now().strftime("%Y-%m-%d"),
         },
     }
+
+    # --- COMPONENTES VISUALES COMPARTIDOS ---
+    texto_reloj = ft.Text("00:00", size=50, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)
+    texto_alerta_cambio = ft.Text("Partido listo", weight=ft.FontWeight.W_600, color=COLOR_SUBTEXTO)
+
+    def formatear_tiempo(segs):
+        return f"{segs // 60:02d}:{segs % 60:02d}"
 
     # --- CONSULTAS Y OPERACIONES BD ---
     def obtener_jugadores_bd():
@@ -400,14 +407,22 @@ def main(page: ft.Page):
             "fecha": partido["fecha"],
         }
 
+        # Restablece la UI del reloj y la alerta al cambiar de partido
+        texto_reloj.value = formatear_tiempo(estado["segundos"])
+        if estado["finalizado"]:
+            texto_alerta_cambio.value = "🔒 PARTIDO FINALIZADO (Solo Lectura)"
+            texto_alerta_cambio.color = COLOR_ROJO
+        elif estado["corriendo"]:
+            texto_alerta_cambio.value = "⏱️ Partido en marcha"
+            texto_alerta_cambio.color = COLOR_VERDE
+        elif estado["segundos"] > 0:
+            texto_alerta_cambio.value = "⏸️ Partido pausado"
+            texto_alerta_cambio.color = COLOR_AMBAR
+        else:
+            texto_alerta_cambio.value = "Partido listo"
+            texto_alerta_cambio.color = COLOR_SUBTEXTO
+
     cargar_partidos_bd()
-
-    # --- COMPONENTES VISUALES ---
-    texto_reloj = ft.Text("00:00", size=50, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)
-    texto_alerta_cambio = ft.Text("Partido listo", weight=ft.FontWeight.W_600, color=COLOR_SUBTEXTO)
-
-    def formatear_tiempo(segs):
-        return f"{segs // 60:02d}:{segs % 60:02d}"
 
     # --- LOOP DEL CRONÓMETRO Y SINCRONIZACIÓN MULTIDISPOSITIVO ---
     async def loop_reloj():
@@ -415,7 +430,6 @@ def main(page: ft.Page):
         while True:
             await asyncio.sleep(1)
 
-            # Sincronización en segundo plano con Turso cada 2 segundos
             contador_sync += 1
             if contador_sync >= 2:
                 sincronizar_partido_activo_bd()
@@ -442,7 +456,6 @@ def main(page: ft.Page):
                     texto_alerta_cambio.value = f"🏁 ¡FIN DEL TIEMPO {tiempo_terminado}!"
                     texto_alerta_cambio.color = COLOR_AMBAR
 
-                # Acumulación de tiempo jugado para el plantel titular
                 for jugador in estado["titulares_seleccionados"]:
                     estado["minutos_partido_actual"][jugador] = (
                         estado["minutos_partido_actual"].get(jugador, 0) + 1
@@ -532,7 +545,7 @@ def main(page: ft.Page):
 
                 texto_feedback.value = f"✅ Partido vs '{rival}' registrado en BD."
                 texto_feedback.color = COLOR_VERDE
-                contenedor_config.content = view_configuracion()
+                refrescar_vistas()
                 page.update()
             except ValueError:
                 texto_feedback.value = "❌ Ingresa números válidos."
@@ -542,7 +555,7 @@ def main(page: ft.Page):
         def seleccionar_partido(partido):
             activar_partido_memoria(partido)
             guardar_estado_partido_activo()
-            contenedor_config.content = view_configuracion()
+            refrescar_vistas()
             page.update()
 
         def eliminar_partido(partido_id):
@@ -550,7 +563,7 @@ def main(page: ft.Page):
             cargar_partidos_bd()
             if estado["partidos"]:
                 activar_partido_memoria(estado["partidos"][0])
-            contenedor_config.content = view_configuracion()
+            refrescar_vistas()
             page.update()
 
         def confirmar_reset(e):
@@ -560,11 +573,9 @@ def main(page: ft.Page):
 
             def procesar_reset(ev):
                 reiniciar_base_datos()
-                texto_reloj.value = "00:00"
-                texto_alerta_cambio.value = "BD Reiniciada"
                 texto_feedback.value = "🔄 Base de datos restablecida."
                 dialogo_reset.open = False
-                contenedor_config.content = view_configuracion()
+                refrescar_vistas()
                 page.update()
 
             dialogo_reset = ft.AlertDialog(
@@ -948,7 +959,7 @@ def main(page: ft.Page):
             spacing=8,
         )
 
-    # --- PANTALLA 3: PARTIDO EN VIVO (Manejo de Timestamps) ---
+    # --- PANTALLA 3: PARTIDO EN VIVO ---
     def view_partido():
         segs_actuales = obtener_segundos_actuales(estado)
         texto_reloj.value = formatear_tiempo(segs_actuales)
@@ -958,9 +969,19 @@ def main(page: ft.Page):
         fecha_partido = estado["config"].get("fecha", datetime.now().strftime("%Y-%m-%d"))
         es_fin = estado["finalizado"]
 
+        # Sincronizar el texto de alerta según el estado actual
         if es_fin:
             texto_alerta_cambio.value = "🔒 PARTIDO FINALIZADO (Solo Lectura)"
             texto_alerta_cambio.color = COLOR_ROJO
+        elif estado["corriendo"]:
+            texto_alerta_cambio.value = "⏱️ Partido en marcha"
+            texto_alerta_cambio.color = COLOR_VERDE
+        elif segs_actuales > 0:
+            texto_alerta_cambio.value = "⏸️ Partido pausado"
+            texto_alerta_cambio.color = COLOR_AMBAR
+        else:
+            texto_alerta_cambio.value = "Partido listo"
+            texto_alerta_cambio.color = COLOR_SUBTEXTO
 
         marcador_ui = ft.Container(
             content=ft.Column(
@@ -1078,7 +1099,7 @@ def main(page: ft.Page):
                 texto_alerta_cambio.color = COLOR_VERDE
 
             guardar_estado_partido_activo()
-            contenedor_partido.content = view_partido()
+            refrescar_vistas()
             page.update()
 
         dd_evento = ft.Dropdown(
@@ -1664,6 +1685,14 @@ def main(page: ft.Page):
     contenedor_partido = ft.Container(content=view_partido(), expand=True, padding=12, visible=False)
     contenedor_minutos = ft.Container(content=view_minutos(), expand=True, padding=12, visible=False)
     contenedor_resumen = ft.Container(content=view_resumen(), expand=True, padding=12, visible=False)
+
+    def refrescar_vistas():
+        """Refresca todos los contenedores para sincronizar el estado del partido activo"""
+        contenedor_config.content = view_configuracion()
+        contenedor_plantel.content = view_plantel()
+        contenedor_partido.content = view_partido()
+        contenedor_minutos.content = view_minutos()
+        contenedor_resumen.content = view_resumen()
 
     def cambiar_pantalla(e):
         indice = e.control.selected_index
