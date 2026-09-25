@@ -2,24 +2,31 @@ import asyncio
 from datetime import datetime
 import json
 import os
-import sqlite3
+# Reemplazamos el sqlite3 nativo por el driver de Turso/LibSQL
+import libsql_experimental as sqlite3
 import flet as ft
 import pandas as pd
 
 # --- PALETA DE COLORES MODERNA (CELESTE Y PLOMO SLATE) ---
-COLOR_FONDO = "#0F172A"         # Plomo Slate Oscuro
-COLOR_TARJETA = "#1E293B"       # Plomo Slate Medio
-COLOR_BORDE = "#334155"         # Plomo Slate Claro
-COLOR_CELESTE = "#38BDF8"       # Celeste Neón / Sky 400
-COLOR_CELESTE_BOTON = "#0284C7" # Celeste Intenso / Sky 600
-COLOR_TEXTO = "#F8FAFC"         # Blanco Puro
-COLOR_SUBTEXTO = "#94A3B8"      # Gris Plata
-COLOR_VERDE = "#4ADE80"         # Verde Éxito
-COLOR_ROJO = "#F87171"          # Rojo Alerta
-COLOR_AMBAR = "#FBBF24"         # Ámbar Advertencia
+COLOR_FONDO = "#0F172A"
+COLOR_TARJETA = "#1E293B"
+COLOR_BORDE = "#334155"
+COLOR_CELESTE = "#38BDF8"
+COLOR_CELESTE_BOTON = "#0284C7"
+COLOR_TEXTO = "#F8FAFC"
+COLOR_SUBTEXTO = "#94A3B8"
+COLOR_VERDE = "#4ADE80"
+COLOR_ROJO = "#F87171"
+COLOR_AMBAR = "#FBBF24"
 
-# --- CONFIGURACIÓN DE BASE DE DATOS SQLITE ---
-DB_PATH = "partidos_dunalastair.db"
+# --- CONFIGURACIÓN DE BASE DE DATOS TURSO EN LA NUBE ---
+# Reemplaza estos valores con tu URL y Token generados en Turso
+TURSO_URL = os.environ.get("TURSO_URL", "libsql://apppartidos-mnieto.aws-us-east-2.turso.io")
+TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "tu-token-secreto-aqui")
+
+def conectar_bd():
+    """Genera la conexión a la base de datos remota de Turso"""
+    return sqlite3.connect(TURSO_URL, auth_token="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAzMzgxNTcsImlkIjoiMDFhMGQ4NzctNzEwMS03NjMyLThiOWYtY2ExOWMzYmI1NDc3Iiwia2lkIjoiTDl6UGpCZkwtX2JXbzVlZWl3RElTcUZ2TFIwNms2c2Z2RGRDRTV3Q20wUSIsInJpZCI6IjUwMzI1MGM2LWFlNzgtNGZkMC1iZTg2LWY1YzkxOGE4NDFjNCJ9.NVAc4gJsI2qAz75C00A6nYrJLTzgOGgEynUB5Y4GBp5rJIEtmczZjwYHAoUMGvcfZKk4Y8qYfEioGthy86guCw")
 
 ORDEN_PUESTOS = {
     "Arquero": 1,
@@ -53,7 +60,7 @@ EVENTOS_DEFECTO = [
 
 
 def inicializar_bd():
-    conn = sqlite3.connect(DB_PATH)
+    conn = conectar_bd()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -85,7 +92,7 @@ def inicializar_bd():
 
     try:
         cursor.execute("ALTER TABLE partidos ADD COLUMN finalizado INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     cursor.execute("SELECT COUNT(*) FROM jugadores")
@@ -131,7 +138,7 @@ def main(page: ft.Page):
 
     # --- CONSULTAS Y OPERACIONES BD ---
     def obtener_jugadores_bd():
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("SELECT numero, nombre, puesto FROM jugadores")
         filas = cursor.fetchall()
@@ -156,7 +163,7 @@ def main(page: ft.Page):
 
     def agregar_jugador_bd(num, nom, puesto):
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = conectar_bd()
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO jugadores (numero, nombre, puesto) VALUES (?, ?, ?)",
@@ -165,11 +172,11 @@ def main(page: ft.Page):
             conn.commit()
             conn.close()
             return True
-        except sqlite3.IntegrityError:
+        except Exception:
             return False
 
     def eliminar_jugador_bd(nombre):
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM jugadores WHERE nombre=?", (nombre,))
         conn.commit()
@@ -183,7 +190,7 @@ def main(page: ft.Page):
         guardar_estado_partido_activo()
 
     def cargar_partidos_bd():
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, fecha, equipo_rival, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha, goles_local, goles_rival, segundos, titulares, eventos, minutos_partido, finalizado FROM partidos ORDER BY fecha DESC, id DESC"
@@ -221,7 +228,7 @@ def main(page: ft.Page):
             activar_partido_memoria(lista_partidos[0])
 
     def crear_partido_bd(fecha, rival, tiempos, minutos_tiempo, jugadores_cancha):
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -239,7 +246,7 @@ def main(page: ft.Page):
         if estado["partido_activo_id"] is None:
             return
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -273,14 +280,14 @@ def main(page: ft.Page):
                 break
 
     def eliminar_partido_bd(partido_id):
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM partidos WHERE id=?", (partido_id,))
         conn.commit()
         conn.close()
 
     def reiniciar_base_datos():
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM partidos")
         cursor.execute("DELETE FROM jugadores")
@@ -295,7 +302,7 @@ def main(page: ft.Page):
         cargar_partidos_bd()
 
     def obtener_minutos_totales_bd():
-        conn = sqlite3.connect(DB_PATH)
+        conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("SELECT minutos_partido FROM partidos")
         filas = cursor.fetchall()
@@ -1349,7 +1356,8 @@ def main(page: ft.Page):
                     ft.Text("DUNALASTAIR FC", weight=ft.FontWeight.BOLD, size=15, color=COLOR_TEXTO),
                 ], spacing=6),
                 ft.Container(
-                    content=ft.Text("SQLite BD", size=10, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                    # Actualizado para indicar que ahora usas Turso
+                    content=ft.Text("Turso BD", size=10, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                     bgcolor=COLOR_BORDE, padding=ft.Padding(8, 3, 8, 3), border_radius=8
                 )
             ],

@@ -1,3 +1,7 @@
 venv-antiguo/
 .idea/
 estado_torneo.json
+venv312/
+*.db
+.idea/
+__pycache__/
