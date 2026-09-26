@@ -197,7 +197,8 @@ def main(page: ft.Page):
         "minutos_partido_actual": {},
         "titulares_seleccionados": [],
         "eventos_registrados": [],
-        "es_invitado": True,  # Por defecto arranca en invitado hasta que se valide
+        "es_invitado": True,
+        "fecha_filtro": datetime.now().strftime("%Y-%m-%d"),
         "config": {
             "equipo_principal": "Real Dunalastair",
             "equipo_rival": "Rival FC",
@@ -213,6 +214,12 @@ def main(page: ft.Page):
     )
     texto_alerta_cambio = ft.Text(
         "Partido listo", weight=ft.FontWeight.W_600, color=COLOR_SUBTEXTO
+    )
+    texto_rol_header = ft.Text(
+        "👤 Invitado",
+        size=10,
+        weight=ft.FontWeight.BOLD,
+        color=COLOR_AMBAR,
     )
 
     def actualizar_glosa():
@@ -318,8 +325,10 @@ def main(page: ft.Page):
         try:
             cursor = conn.cursor()
 
+            fecha_buscar = estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d"))
             cursor.execute(
-                "SELECT id, nombre, fecha, equipo_principal, equipos_json FROM grupos ORDER BY id DESC LIMIT 1"
+                "SELECT id, nombre, fecha, equipo_principal, equipos_json FROM grupos WHERE fecha = ? ORDER BY id DESC LIMIT 1",
+                (fecha_buscar,)
             )
             row_grupo = cursor.fetchone()
 
@@ -381,7 +390,16 @@ def main(page: ft.Page):
                         p for p in lista_partidos if p["es_principal"]
                     ]
                     if partidos_principales:
-                        activar_partido_memoria(partidos_principales[0])
+                        if estado["es_invitado"]:
+                            en_curso = next((p for p in partidos_principales if p["hora_inicio"] is not None or (
+                                    p["segundos"] > 0 and not p["finalizado"])), None)
+                            activar_partido_memoria(en_curso if en_curso else partidos_principales[0])
+                        else:
+                            activar_partido_memoria(partidos_principales[0])
+            else:
+                estado["grupo_activo"] = None
+                estado["partidos_grupo"] = []
+                estado["partido_activo_id"] = None
         finally:
             conn.close()
 
@@ -764,6 +782,32 @@ def main(page: ft.Page):
 
     # --- PANTALLA 1: CONFIGURACIÓN & TABLA DE POSICIONES ---
     def view_configuracion():
+        tf_buscar_fecha = ft.TextField(
+            label="Consultar Fecha (AAAA-MM-DD)",
+            value=estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d")),
+            width=220,
+            border_color=COLOR_BORDE,
+            focused_border_color=COLOR_CELESTE,
+            border_radius=10,
+        )
+
+        def click_buscar_fecha(e):
+            estado["fecha_filtro"] = tf_buscar_fecha.value.strip()
+            estado["partido_activo_id"] = None
+            cargar_datos_grupo()
+            refrescar_vistas()
+            page.update()
+
+        row_filtro = ft.Row([
+            tf_buscar_fecha,
+            ft.IconButton(
+                icon=ft.Icons.SEARCH,
+                icon_color=COLOR_CELESTE,
+                on_click=click_buscar_fecha,
+                tooltip="Buscar Cuadrangular"
+            )
+        ])
+
         tf_nombre_grupo = ft.TextField(
             label="Nombre del Grupo/Torneo",
             value="Grupo A - Cuadrangular",
@@ -774,7 +818,7 @@ def main(page: ft.Page):
         )
         tf_fecha_grupo = ft.TextField(
             label="Fecha (AAAA-MM-DD)",
-            value=datetime.now().strftime("%Y-%m-%d"),
+            value=estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d")),
             width=140,
             border_color=COLOR_BORDE,
             focused_border_color=COLOR_CELESTE,
@@ -822,6 +866,7 @@ def main(page: ft.Page):
             todos_los_equipos = [eq_princ] + lista_rivales
             crear_nuevo_grupo(nom_g, f_g, eq_princ, todos_los_equipos)
 
+            estado["fecha_filtro"] = f_g
             texto_feedback_grupo.value = f"✅ Grupo '{nom_g}' generado con {len(todos_los_equipos)} equipos y sus partidos combinados."
             texto_feedback_grupo.color = COLOR_VERDE
             refrescar_vistas()
@@ -1009,6 +1054,41 @@ def main(page: ft.Page):
                         if p["equipo_local"] == estado["config"]["equipo_principal"]
                         else p["equipo_local"]
                     )
+
+                    if p["finalizado"]:
+                        texto_estado = "Finalizado"
+                        color_estado = COLOR_ROJO
+                    elif es_activo:
+                        texto_estado = "En Curso"
+                        color_estado = COLOR_VERDE
+                    elif p["jugado"] or p["segundos"] > 0:
+                        texto_estado = "Finalizado"
+                        color_estado = COLOR_SUBTEXTO
+                    else:
+                        texto_estado = "Por jugar"
+                        color_estado = COLOR_SUBTEXTO
+
+                    if estado["es_invitado"]:
+                        accion_ui = ft.ElevatedButton(
+                            "Ver Detalles" if not es_activo else "Viendo",
+                            icon=ft.Icons.VISIBILITY if not es_activo else ft.Icons.CHECK_CIRCLE,
+                            disabled=es_activo,
+                            bgcolor=COLOR_CELESTE_BOTON if not es_activo else COLOR_BORDE,
+                            color=COLOR_TEXTO,
+                            on_click=crear_handler_select(p),
+                        )
+                    else:
+                        accion_ui = ft.ElevatedButton(
+                            "Seleccionar" if not es_activo else "En Curso",
+                            icon=ft.Icons.PLAY_ARROW if not es_activo else ft.Icons.CHECK_CIRCLE,
+                            disabled=es_activo,
+                            bgcolor=COLOR_CELESTE_BOTON if not es_activo else COLOR_BORDE,
+                            color=COLOR_TEXTO,
+                            on_click=crear_handler_select(p),
+                        )
+                        if p["finalizado"] and not es_activo:
+                            accion_ui.text = "Finalizado"
+
                     card = ft.Container(
                         content=ft.Row(
                             [
@@ -1028,14 +1108,7 @@ def main(page: ft.Page):
                                     ],
                                     spacing=2,
                                 ),
-                                ft.ElevatedButton(
-                                    "Seleccionar" if not es_activo else "En Curso",
-                                    icon=ft.Icons.PLAY_ARROW if not es_activo else ft.Icons.CHECK_CIRCLE,
-                                    disabled=es_activo,
-                                    bgcolor=COLOR_CELESTE_BOTON if not es_activo else COLOR_BORDE,
-                                    color=COLOR_TEXTO,
-                                    on_click=crear_handler_select(p),
-                                ),
+                                accion_ui,
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
@@ -1115,15 +1188,23 @@ def main(page: ft.Page):
 
         elementos_columna = [
             ft.Text(
+                "📅 Buscar Cuadrangular por Fecha",
+                size=16,
+                weight=ft.FontWeight.BOLD,
+                color=COLOR_TEXTO,
+            ),
+            row_filtro,
+            ft.Divider(height=10, color=COLOR_BORDE),
+            ft.Text(
                 "⚙️ Configuración del Grupo y Torneo",
                 size=20,
                 weight=ft.FontWeight.BOLD,
                 color=COLOR_TEXTO,
             ),
-            componente_tabla,
+            componente_tabla if estado["grupo_activo"] else ft.Text("No hay torneos en esta fecha.",
+                                                                    color=COLOR_SUBTEXTO),
         ]
 
-        # Si NO es invitado, se muestra la opción de definir nuevo grupo y resetear BD
         if not estado["es_invitado"]:
             elementos_columna.append(
                 ft.Container(
@@ -1415,7 +1496,6 @@ def main(page: ft.Page):
             ),
         ]
 
-        # Si no es invitado, se muestra la sección para agregar nuevo jugador
         if not estado["es_invitado"]:
             elementos_plantel.append(
                 ft.Container(
@@ -1814,7 +1894,6 @@ def main(page: ft.Page):
             ft.Container(content=texto_alerta_cambio, alignment=ft.Alignment(0, 0)),
         ]
 
-        # Si no es invitado, se muestran los botones de control de reloj
         if not estado["es_invitado"]:
             elementos_partido.append(
                 ft.Row(
@@ -1842,7 +1921,6 @@ def main(page: ft.Page):
 
         elementos_partido.append(ft.Divider(height=5, color=COLOR_BORDE))
 
-        # Si no es invitado, se muestran los controles para registrar eventos
         if not estado["es_invitado"]:
             elementos_partido.extend([
                 ft.Text(
@@ -2016,15 +2094,18 @@ def main(page: ft.Page):
         contenedor_minutos.content = view_minutos()
 
     def construir_barra_navegacion():
-        destinos = [
-            ft.NavigationBarDestination(icon=ft.Icons.SETTINGS, label="Config & Tabla"),
-            ft.NavigationBarDestination(icon=ft.Icons.PEOPLE, label="Plantel"),
-            ft.NavigationBarDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
-        ]
-        if not estado["es_invitado"]:
-            destinos.append(
-                ft.NavigationBarDestination(icon=ft.Icons.BAR_CHART, label="Ranking")
-            )
+        if estado["es_invitado"]:
+            destinos = [
+                ft.NavigationBarDestination(icon=ft.Icons.SETTINGS, label="Config & Tabla"),
+                ft.NavigationBarDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
+            ]
+        else:
+            destinos = [
+                ft.NavigationBarDestination(icon=ft.Icons.SETTINGS, label="Config & Tabla"),
+                ft.NavigationBarDestination(icon=ft.Icons.PEOPLE, label="Plantel"),
+                ft.NavigationBarDestination(icon=ft.Icons.SPORTS_SOCCER, label="Partido"),
+                ft.NavigationBarDestination(icon=ft.Icons.BAR_CHART, label="Ranking"),
+            ]
         return ft.NavigationBar(
             selected_index=0,
             bgcolor=COLOR_TARJETA,
@@ -2037,26 +2118,30 @@ def main(page: ft.Page):
         indice = e.control.selected_index
         estado["pestana_activa"] = indice
 
-        # Si es invitado, solo hay 3 pestañas (0, 1, 2)
         if estado["es_invitado"]:
             contenedor_config.visible = indice == 0
-            contenedor_plantel.visible = indice == 1
-            contenedor_partido.visible = indice == 2
+            contenedor_plantel.visible = False
+            contenedor_partido.visible = indice == 1
             contenedor_minutos.visible = False
+
+            if indice == 0:
+                contenedor_config.content = view_configuracion()
+            elif indice == 1:
+                contenedor_partido.content = view_partido()
         else:
             contenedor_config.visible = indice == 0
             contenedor_plantel.visible = indice == 1
             contenedor_partido.visible = indice == 2
             contenedor_minutos.visible = indice == 3
 
-        if indice == 0:
-            contenedor_config.content = view_configuracion()
-        elif indice == 1:
-            contenedor_plantel.content = view_plantel()
-        elif indice == 2:
-            contenedor_partido.content = view_partido()
-        elif indice == 3 and not estado["es_invitado"]:
-            contenedor_minutos.content = view_minutos()
+            if indice == 0:
+                contenedor_config.content = view_configuracion()
+            elif indice == 1:
+                contenedor_plantel.content = view_plantel()
+            elif indice == 2:
+                contenedor_partido.content = view_partido()
+            elif indice == 3:
+                contenedor_minutos.content = view_minutos()
         page.update()
 
     page.navigation_bar = construir_barra_navegacion()
@@ -2079,12 +2164,7 @@ def main(page: ft.Page):
                 ft.Row(
                     [
                         ft.Container(
-                            content=ft.Text(
-                                "👑 Administrador" if not estado["es_invitado"] else "👤 Invitado",
-                                size=10,
-                                weight=ft.FontWeight.BOLD,
-                                color=COLOR_VERDE if not estado["es_invitado"] else COLOR_AMBAR,
-                            ),
+                            content=texto_rol_header,
                             bgcolor=COLOR_BORDE,
                             padding=ft.Padding(8, 3, 8, 3),
                             border_radius=8,
@@ -2140,6 +2220,9 @@ def main(page: ft.Page):
 
         def seleccionar_invitado(e):
             estado["es_invitado"] = True
+            texto_rol_header.value = "👤 Invitado"
+            texto_rol_header.color = COLOR_AMBAR
+
             dialogo_rol.open = False
             page.navigation_bar = construir_barra_navegacion()
             page.navigation_bar.selected_index = 0
@@ -2148,12 +2231,16 @@ def main(page: ft.Page):
             contenedor_plantel.visible = False
             contenedor_partido.visible = False
             contenedor_minutos.visible = False
+            cargar_datos_grupo()
             refrescar_vistas()
             page.update()
 
         def verificar_admin(e):
             if tf_clave.value.strip() == "11165045":
                 estado["es_invitado"] = False
+                texto_rol_header.value = "👑 Administrador"
+                texto_rol_header.color = COLOR_VERDE
+
                 dialogo_rol.open = False
                 page.navigation_bar = construir_barra_navegacion()
                 page.navigation_bar.selected_index = 0
