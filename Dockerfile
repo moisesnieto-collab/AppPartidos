@@ -15,7 +15,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY backend/ ./backend/
+COPY frontend/ ./frontend/
+COPY config/ ./config/
+COPY utils/ ./utils/
+COPY main.py .
 
 ENV PORT=8080
 EXPOSE 8080
