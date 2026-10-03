@@ -56,9 +56,14 @@ class PlantelScreen:
         def pedir_confirmacion_borrado(nom_jugador):
             if self.estado["es_invitado"]:
                 return
+            fecha_filtro = (
+                self.estado.get("fecha_filtro")
+                or self.estado.get("config", {}).get("fecha")
+            )
             minutos_totales = PartidoService.obtener_minutos_totales(
-                self.estado["partido_activo_id"],
-                self.estado["minutos_partido_actual"]
+                partido_activo_id=self.estado.get("partido_activo_id"),
+                minutos_actuales=self.estado.get("minutos_partido_actual", {}),
+                fecha=fecha_filtro,
             )
             mins = minutos_totales.get(nom_jugador, 0) // 60
 
@@ -90,6 +95,15 @@ class PlantelScreen:
             self.page.update()
 
         titulares_ui, suplentes_ui = [], []
+        fecha_filtro = (
+            self.estado.get("fecha_filtro")
+            or self.estado.get("config", {}).get("fecha")
+        )
+        minutos_dia = PartidoService.obtener_minutos_totales(
+            partido_activo_id=self.estado.get("partido_activo_id"),
+            minutos_actuales=self.estado.get("minutos_partido_actual", {}),
+            fecha=fecha_filtro,
+        )
 
         for j in jugadores:
             nombre = j["nombre"]
@@ -97,7 +111,7 @@ class PlantelScreen:
             num = j["numero"]
 
             es_titular = nombre in self.estado["titulares_seleccionados"]
-            segs_hoy = self.estado["minutos_partido_actual"].get(nombre, 0)
+            segs_hoy = minutos_dia.get(nombre, 0)
             mins_hoy = segs_hoy // 60
 
             def crear_on_change(nom):

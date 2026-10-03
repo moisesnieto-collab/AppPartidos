@@ -1,3 +1,4 @@
+from datetime import datetime
 import flet as ft
 import pandas as pd
 from config.constants import COLOR_TARJETA, COLOR_BORDE, COLOR_CELESTE, COLOR_CELESTE_BOTON, COLOR_TEXTO, COLOR_SUBTEXTO, COLOR_VERDE
@@ -15,9 +16,15 @@ class EstadisticasScreen:
     def build(self):
         actualizar_minutos_jugadores(self.estado)
         jugadores = JugadorService.obtener_todos_ordenados()
+        fecha_filtro = (
+            self.estado.get("fecha_filtro")
+            or self.estado.get("config", {}).get("fecha")
+            or datetime.now().strftime("%Y-%m-%d")
+        )
         minutos_acumulados_bd = PartidoService.obtener_minutos_totales(
-            self.estado["partido_activo_id"],
-            self.estado["minutos_partido_actual"]
+            partido_activo_id=self.estado.get("partido_activo_id"),
+            minutos_actuales=self.estado.get("minutos_partido_actual", {}),
+            fecha=fecha_filtro,
         )
         stats_ui = []
         texto_export = ft.Text("", color=COLOR_VERDE)
@@ -29,14 +36,16 @@ class EstadisticasScreen:
                     nom = j["nombre"]
                     segs = minutos_acumulados_bd.get(nom, 0)
                     datos_jugadores.append({
+                        "Fecha": fecha_filtro,
                         "Número": j["numero"],
                         "Jugador": nom,
                         "Puesto": j["puesto"],
-                        "Minutos Acumulados Totales": segs // 60,
+                        "Minutos Acumulados Día": segs // 60,
                     })
                 df = pd.DataFrame(datos_jugadores)
-                df.to_excel("Reporte_Minutos_BD.xlsx", index=False)
-                texto_export.value = "✅ 'Reporte_Minutos_BD.xlsx' guardado."
+                nombre_archivo = f"Reporte_Minutos_{fecha_filtro}.xlsx"
+                df.to_excel(nombre_archivo, index=False)
+                texto_export.value = f"✅ '{nombre_archivo}' guardado."
             except Exception as ex:
                 texto_export.value = f"❌ Error exportando: {ex}"
             self.page.update()
@@ -97,7 +106,7 @@ class EstadisticasScreen:
         return ft.Column(
             [
                 ft.Text(
-                    "📊 Ranking Acumulado de Minutos (Menor a Mayor)",
+                    f"📊 Ranking de Minutos por Día ({fecha_filtro})",
                     size=18,
                     weight=ft.FontWeight.BOLD,
                     color=COLOR_TEXTO,

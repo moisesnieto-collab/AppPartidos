@@ -82,6 +82,19 @@ def main(page: ft.Page):
             estado["grupo_activo"] = None
             estado["partidos_grupo"] = []
             estado["partido_activo_id"] = None
+            estado["minutos_partido_actual"] = {}
+            estado["segundos"] = 0
+            estado["segundos_acumulados"] = 0
+            estado["segs_al_iniciar"] = 0
+            estado["ultimo_segundo_procesado"] = 0
+            estado["hora_inicio"] = None
+            estado["corriendo"] = False
+            estado["finalizado"] = False
+            estado["alerta_custom"] = None
+            estado["titulares_seleccionados"] = []
+            estado["eventos_registrados"] = []
+            estado["goles_local"] = 0
+            estado["goles_rival"] = 0
 
     def activar_partido_memoria(partido):
         if not partido:
@@ -150,43 +163,6 @@ def main(page: ft.Page):
             estado["goles_rival"],
             estado["config"]["equipo_principal"],
         )
-
-    def activar_partido_memoria(partido):
-        if not partido:
-            return
-        
-        eq_principal = (
-            estado["grupo_activo"]["equipo_principal"]
-            if estado["grupo_activo"]
-            else "Real Dunalastair"
-        )
-        estado["config"]["equipo_principal"] = eq_principal
-
-        es_local = partido["equipo_local"] == eq_principal
-        rival = partido["equipo_visita"] if es_local else partido["equipo_local"]
-
-        estado["partido_activo_id"] = partido["id"]
-        estado["goles_local"] = partido["goles_local"] if es_local else partido["goles_visita"]
-        estado["goles_rival"] = partido["goles_visita"] if es_local else partido["goles_local"]
-        estado["segundos_acumulados"] = partido.get("segundos_acumulados", partido["segundos"])
-        estado["segs_al_iniciar"] = estado["segundos_acumulados"]
-        estado["hora_inicio"] = partido.get("hora_inicio")
-        estado["corriendo"] = estado["hora_inicio"] is not None
-        estado["segundos"] = obtener_segundos_actuales(estado)
-        estado["ultimo_segundo_procesado"] = estado["segundos"]
-        estado["titulares_seleccionados"] = list(partido["titulares"])
-        estado["eventos_registrados"] = list(partido["eventos"])
-        estado["alerta_custom"] = partido.get("alerta_custom")
-        estado["minutos_partido_actual"] = dict(partido["minutos_partido"])
-        estado["finalizado"] = bool(partido.get("finalizado", False))
-
-        estado["config"].update({
-            "equipo_rival": rival,
-            "tiempos_por_partido": partido["tiempos_por_partido"],
-            "minutos_por_tiempo": partido["minutos_por_tiempo"],
-            "jugadores_en_cancha": partido["jugadores_en_cancha"],
-            "fecha": partido["fecha"],
-        })
 
     # Callbacks para las pantallas
     callbacks = {

@@ -5,11 +5,22 @@ from backend.database.repositories import PartidoRepository
 
 class PartidoService:
     @staticmethod
-    def obtener_minutos_totales(partido_activo_id: int, minutos_actuales: Dict) -> Dict:
-        minutos_totales = PartidoRepository.obtener_minutos_todos()
+    def obtener_minutos_totales(
+        partido_activo_id: Optional[int] = None,
+        minutos_actuales: Optional[Dict] = None,
+        fecha: Optional[str] = None,
+    ) -> Dict:
+        if not fecha:
+            return {}
         
-        # Reemplazar con los minutos actuales del partido activo
-        if partido_activo_id:
+        # Minutos guardados en BD para la fecha indicada (excluyendo el partido activo si se indica)
+        minutos_totales = PartidoRepository.obtener_minutos_por_fecha(
+            fecha,
+            excluir_partido_id=partido_activo_id
+        )
+        
+        # Sumar los minutos en memoria del partido activo actual
+        if minutos_actuales:
             for jugador, segs in minutos_actuales.items():
                 minutos_totales[jugador] = minutos_totales.get(jugador, 0) + segs
         

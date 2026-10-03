@@ -201,6 +201,37 @@ class PartidoRepository:
             conn.close()
 
     @staticmethod
+    def obtener_minutos_por_fecha(fecha: str, excluir_partido_id: Optional[int] = None) -> dict:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            if excluir_partido_id is not None:
+                cursor.execute(
+                    "SELECT id, minutos_partido FROM partidos WHERE fecha = ? AND id != ?",
+                    (fecha, excluir_partido_id),
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, minutos_partido FROM partidos WHERE fecha = ?",
+                    (fecha,),
+                )
+            filas = cursor.fetchall()
+            
+            minutos_totales = {}
+            for row in filas:
+                try:
+                    min_dict = json.loads(row[1]) if row[1] else {}
+                except Exception:
+                    min_dict = {}
+                
+                for jugador, segs in min_dict.items():
+                    minutos_totales[jugador] = minutos_totales.get(jugador, 0) + segs
+            
+            return minutos_totales
+        finally:
+            conn.close()
+
+    @staticmethod
     def obtener_minutos_todos() -> dict:
         conn = conectar_bd()
         try:
@@ -210,7 +241,6 @@ class PartidoRepository:
             
             minutos_totales = {}
             for row in filas:
-                p_id = row[0]
                 try:
                     min_dict = json.loads(row[1]) if row[1] else {}
                 except Exception:

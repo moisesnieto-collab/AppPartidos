@@ -25,15 +25,56 @@ class ConfiguracionScreen:
             border_radius=10,
         )
 
-        def click_buscar_fecha(e):
+        def click_buscar_fecha(e=None):
             self.estado["fecha_filtro"] = tf_buscar_fecha.value.strip()
             self.estado["partido_activo_id"] = None
+            self.estado["minutos_partido_actual"] = {}
+            self.estado["segundos"] = 0
+            self.estado["segundos_acumulados"] = 0
+            self.estado["segs_al_iniciar"] = 0
+            self.estado["ultimo_segundo_procesado"] = 0
+            self.estado["hora_inicio"] = None
+            self.estado["corriendo"] = False
+            self.estado["finalizado"] = False
+            self.estado["alerta_custom"] = None
+            self.estado["titulares_seleccionados"] = []
+            self.estado["eventos_registrados"] = []
+            self.estado["goles_local"] = 0
+            self.estado["goles_rival"] = 0
             self.callbacks["cargar_grupo"]()
             self.callbacks["refrescar_vistas"]()
             self.page.update()
 
+        def on_date_picked(e):
+            if date_picker.value:
+                fecha_str = date_picker.value.strftime("%Y-%m-%d") if isinstance(date_picker.value, datetime) else str(date_picker.value).split("T")[0].split(" ")[0]
+                tf_buscar_fecha.value = fecha_str
+                click_buscar_fecha()
+
+        fecha_val_inicial = datetime.now()
+        try:
+            if self.estado.get("fecha_filtro"):
+                fecha_val_inicial = datetime.strptime(self.estado["fecha_filtro"], "%Y-%m-%d")
+        except Exception:
+            pass
+
+        date_picker = ft.DatePicker(
+            value=fecha_val_inicial,
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2035, 12, 31),
+            on_change=on_date_picked,
+        )
+        if date_picker not in self.page.overlay:
+            self.page.overlay.append(date_picker)
+
         row_filtro = ft.Row([
             tf_buscar_fecha,
+            ft.IconButton(
+                icon=ft.Icons.CALENDAR_MONTH,
+                icon_color=COLOR_CELESTE,
+                on_click=lambda e: setattr(date_picker, 'open', True) or self.page.update(),
+                tooltip="Seleccionar Fecha"
+            ),
             ft.IconButton(
                 icon=ft.Icons.SEARCH,
                 icon_color=COLOR_CELESTE,
@@ -246,68 +287,105 @@ class ConfiguracionScreen:
                     )
                     partidos_mi_equipo_ui.append(card)
                 else:
-                    tf_g_loc = ft.TextField(
-                        value=str(p["goles_local"]),
-                        width=50,
-                        border_color=COLOR_BORDE,
-                        border_radius=8,
-                        keyboard_type=ft.KeyboardType.NUMBER,
-                        disabled=self.estado["es_invitado"],
-                    )
-                    tf_g_vis = ft.TextField(
-                        value=str(p["goles_visita"]),
-                        width=50,
-                        border_color=COLOR_BORDE,
-                        border_radius=8,
-                        keyboard_type=ft.KeyboardType.NUMBER,
-                        disabled=self.estado["es_invitado"],
-                    )
-
-                    def crear_handler_guardar_rival(p_id, input_l, input_v):
-                        return lambda e: (
-                            PartidoService.guardar_marcador_rival(
-                                p_id,
-                                int(input_l.value or 0),
-                                int(input_v.value or 0),
+                    if self.estado["es_invitado"]:
+                        ha_jugado = p.get("jugado", False) or p.get("goles_local", 0) > 0 or p.get("goles_visita", 0) > 0
+                        marcador_destacado = ft.Container(
+                            content=ft.Text(
+                                f"{p['goles_local']}  -  {p['goles_visita']}",
+                                weight=ft.FontWeight.BOLD,
+                                size=15,
+                                color=COLOR_AMBAR if ha_jugado else COLOR_TEXTO,
                             ),
-                            self.callbacks["refrescar_vistas"](),
-                            self.page.update(),
+                            bgcolor=COLOR_FONDO,
+                            padding=ft.Padding(16, 6, 16, 6),
+                            border_radius=8,
+                            border=ft.border.all(1.5, COLOR_AMBAR if ha_jugado else COLOR_BORDE),
+                        )
+                        card_rival = ft.Container(
+                            content=ft.Row([
+                                ft.Text(
+                                    f"{p['equipo_local']}",
+                                    weight=ft.FontWeight.BOLD,
+                                    size=13,
+                                    color=COLOR_TEXTO,
+                                    expand=True,
+                                    text_align=ft.TextAlign.RIGHT,
+                                ),
+                                marcador_destacado,
+                                ft.Text(
+                                    f"{p['equipo_visita']}",
+                                    weight=ft.FontWeight.BOLD,
+                                    size=13,
+                                    color=COLOR_TEXTO,
+                                    expand=True,
+                                    text_align=ft.TextAlign.LEFT,
+                                ),
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                            padding=10,
+                            bgcolor=COLOR_TARJETA,
+                            border_radius=8,
+                            border=ft.border.all(1, COLOR_BORDE),
+                        )
+                    else:
+                        tf_g_loc = ft.TextField(
+                            value=str(p["goles_local"]),
+                            width=50,
+                            border_color=COLOR_BORDE,
+                            border_radius=8,
+                            keyboard_type=ft.KeyboardType.NUMBER,
+                        )
+                        tf_g_vis = ft.TextField(
+                            value=str(p["goles_visita"]),
+                            width=50,
+                            border_color=COLOR_BORDE,
+                            border_radius=8,
+                            keyboard_type=ft.KeyboardType.NUMBER,
                         )
 
-                    card_rival = ft.Container(
-                        content=ft.Row([
-                            ft.Text(
-                                f"{p['equipo_local']}",
-                                weight=ft.FontWeight.BOLD,
-                                size=12,
-                                color=COLOR_TEXTO,
-                                expand=True,
-                            ),
-                            tf_g_loc,
-                            ft.Text("-", color=COLOR_SUBTEXTO),
-                            tf_g_vis,
-                            ft.Text(
-                                f"{p['equipo_visita']}",
-                                weight=ft.FontWeight.BOLD,
-                                size=12,
-                                color=COLOR_TEXTO,
-                                expand=True,
-                                text_align=ft.TextAlign.RIGHT,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.SAVE,
-                                icon_color=COLOR_CELESTE,
-                                disabled=self.estado["es_invitado"],
-                                on_click=crear_handler_guardar_rival(
-                                    p["id"], tf_g_loc, tf_g_vis
+                        def crear_handler_guardar_rival(p_id, input_l, input_v):
+                            return lambda e: (
+                                PartidoService.guardar_marcador_rival(
+                                    p_id,
+                                    int(input_l.value or 0),
+                                    int(input_v.value or 0),
                                 ),
-                            ),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        padding=6,
-                        bgcolor=COLOR_TARJETA,
-                        border_radius=8,
-                        border=ft.border.all(1, COLOR_BORDE),
-                    )
+                                self.callbacks["refrescar_vistas"](),
+                                self.page.update(),
+                            )
+
+                        card_rival = ft.Container(
+                            content=ft.Row([
+                                ft.Text(
+                                    f"{p['equipo_local']}",
+                                    weight=ft.FontWeight.BOLD,
+                                    size=12,
+                                    color=COLOR_TEXTO,
+                                    expand=True,
+                                ),
+                                tf_g_loc,
+                                ft.Text("-", color=COLOR_SUBTEXTO),
+                                tf_g_vis,
+                                ft.Text(
+                                    f"{p['equipo_visita']}",
+                                    weight=ft.FontWeight.BOLD,
+                                    size=12,
+                                    color=COLOR_TEXTO,
+                                    expand=True,
+                                    text_align=ft.TextAlign.RIGHT,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.SAVE,
+                                    icon_color=COLOR_CELESTE,
+                                    on_click=crear_handler_guardar_rival(
+                                        p["id"], tf_g_loc, tf_g_vis
+                                    ),
+                                ),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            padding=6,
+                            bgcolor=COLOR_TARJETA,
+                            border_radius=8,
+                            border=ft.border.all(1, COLOR_BORDE),
+                        )
                     partidos_rivales_ui.append(card_rival)
 
         elementos_columna = [
@@ -399,6 +477,20 @@ class ConfiguracionScreen:
             GrupoService.crear_grupo(nom_g, f_g, eq_princ, todos_los_equipos, self.estado["es_invitado"])
 
             self.estado["fecha_filtro"] = f_g
+            self.estado["partido_activo_id"] = None
+            self.estado["minutos_partido_actual"] = {}
+            self.estado["segundos"] = 0
+            self.estado["segundos_acumulados"] = 0
+            self.estado["segs_al_iniciar"] = 0
+            self.estado["ultimo_segundo_procesado"] = 0
+            self.estado["hora_inicio"] = None
+            self.estado["corriendo"] = False
+            self.estado["finalizado"] = False
+            self.estado["alerta_custom"] = None
+            self.estado["titulares_seleccionados"] = []
+            self.estado["eventos_registrados"] = []
+            self.estado["goles_local"] = 0
+            self.estado["goles_rival"] = 0
             texto_feedback_grupo.value = f"✅ Grupo '{nom_g}' generado con {len(todos_los_equipos)} equipos y sus partidos combinados."
             texto_feedback_grupo.color = COLOR_VERDE
             self.callbacks["cargar_grupo"]()
