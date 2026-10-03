@@ -6,7 +6,6 @@ from config.constants import (
 )
 from backend.services.grupo_service import GrupoService
 from backend.services.partido_service import PartidoService
-from backend.database.repositories import DatabaseInitializer
 
 
 class ConfiguracionScreen:
@@ -501,25 +500,48 @@ class ConfiguracionScreen:
             if self.estado["es_invitado"]:
                 return
 
+            fecha_a_borrar = (
+                self.estado.get("fecha_filtro")
+                or tf_buscar_fecha.value.strip()
+                or datetime.now().strftime("%Y-%m-%d")
+            )
+
             def cerrar_dlg(ev):
                 dialogo_reset.open = False
                 self.page.update()
 
             def procesar_reset(ev):
-                DatabaseInitializer.reiniciar()
-                texto_feedback_grupo.value = "🔄 Base de datos restablecida."
+                GrupoService.eliminar_grupo_por_fecha(fecha_a_borrar, self.estado["es_invitado"])
+
+                self.estado["partido_activo_id"] = None
+                self.estado["minutos_partido_actual"] = {}
+                self.estado["segundos"] = 0
+                self.estado["segundos_acumulados"] = 0
+                self.estado["segs_al_iniciar"] = 0
+                self.estado["ultimo_segundo_procesado"] = 0
+                self.estado["hora_inicio"] = None
+                self.estado["corriendo"] = False
+                self.estado["finalizado"] = False
+                self.estado["alerta_custom"] = None
+                self.estado["titulares_seleccionados"] = []
+                self.estado["eventos_registrados"] = []
+                self.estado["goles_local"] = 0
+                self.estado["goles_rival"] = 0
+
+                texto_feedback_grupo.value = f"🔄 Información del día {fecha_a_borrar} eliminada de la BD."
+                texto_feedback_grupo.color = COLOR_VERDE
                 dialogo_reset.open = False
                 self.callbacks["cargar_grupo"]()
                 self.callbacks["refrescar_vistas"]()
                 self.page.update()
 
             dialogo_reset = ft.AlertDialog(
-                title=ft.Text("¿Borrar Base de Datos?", color=COLOR_TEXTO),
-                content=ft.Text("Se eliminarán todos los grupos, partidos y estadísticas."),
+                title=ft.Text(f"¿Borrar datos del día ({fecha_a_borrar})?", color=COLOR_TEXTO),
+                content=ft.Text(f"Se eliminarán de la BD el grupo y partidos registrados únicamente para la fecha {fecha_a_borrar}."),
                 actions=[
                     ft.TextButton("Cancelar", on_click=cerrar_dlg),
                     ft.ElevatedButton(
-                        "Borrar BD",
+                        "Borrar Día",
                         bgcolor=COLOR_ROJO,
                         color=COLOR_TEXTO,
                         on_click=procesar_reset,

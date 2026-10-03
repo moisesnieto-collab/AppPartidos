@@ -92,6 +92,17 @@ class GrupoRepository:
         finally:
             conn.close()
 
+    @staticmethod
+    def eliminar_por_fecha(fecha: str) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM grupos WHERE fecha = ?", (fecha,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
 
 class PartidoRepository:
     @staticmethod
@@ -197,6 +208,17 @@ class PartidoRepository:
             return True
         except Exception:
             return False
+        finally:
+            conn.close()
+
+    @staticmethod
+    def eliminar_por_fecha(fecha: str) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM partidos WHERE fecha = ?", (fecha,))
+            conn.commit()
+            return True
         finally:
             conn.close()
 

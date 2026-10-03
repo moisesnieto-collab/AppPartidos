@@ -45,3 +45,11 @@ class GrupoService:
             )
         
         return grupo_id
+
+    @staticmethod
+    def eliminar_grupo_por_fecha(fecha: str, es_invitado: bool = False) -> bool:
+        if es_invitado or not fecha:
+            return False
+        PartidoRepository.eliminar_por_fecha(fecha)
+        GrupoRepository.eliminar_por_fecha(fecha)
+        return True
