@@ -106,6 +106,26 @@ class GrupoRepository:
 
 class PartidoRepository:
     @staticmethod
+    def obtener_por_id(partido_id: int) -> Optional[Partido]:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
+                       tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
+                       goles_local, goles_visita, segundos, segundos_acumulados,
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado
+                FROM partidos WHERE id=?
+                """,
+                (partido_id,),
+            )
+            row = cursor.fetchone()
+            return Partido.from_tuple(row) if row else None
+        finally:
+            conn.close()
+
+    @staticmethod
     def obtener_por_grupo(grupo_id: int) -> List[Partido]:
         conn = conectar_bd()
         try:

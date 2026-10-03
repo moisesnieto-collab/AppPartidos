@@ -17,7 +17,9 @@ from frontend.screens.configuracion import ConfiguracionScreen
 from frontend.screens.plantel import PlantelScreen
 from frontend.screens.partido import PartidoScreen
 from frontend.screens.estadisticas import EstadisticasScreen
-from utils.time_utils import obtener_segundos_actuales, actualizar_minutos_jugadores, formatear_tiempo
+from utils.time_utils import (
+    obtener_segundos_actuales, actualizar_minutos_jugadores, formatear_tiempo, ordenar_eventos
+)
 
 
 def main(page: ft.Page):
@@ -120,7 +122,7 @@ def main(page: ft.Page):
         estado["segundos"] = obtener_segundos_actuales(estado)
         estado["ultimo_segundo_procesado"] = estado["segundos"]
         estado["titulares_seleccionados"] = list(partido["titulares"])
-        estado["eventos_registrados"] = list(partido["eventos"])
+        estado["eventos_registrados"] = ordenar_eventos(list(partido["eventos"]))
         estado["alerta_custom"] = partido.get("alerta_custom")
         estado["minutos_partido_actual"] = dict(partido["minutos_partido"])
         estado["finalizado"] = bool(partido.get("finalizado", False))
@@ -289,7 +291,7 @@ def main(page: ft.Page):
             texto_rol_header.value = "👤 Invitado"
             texto_rol_header.color = COLOR_AMBAR
             estado["pestana_activa"] = 0
-            dialogo_rol.open = False
+            page.close(dialogo_rol)
             page.navigation_bar = construir_barra_navegacion()
             page.navigation_bar.selected_index = 0
             refrescar_vistas()
@@ -302,7 +304,7 @@ def main(page: ft.Page):
                 texto_rol_header.value = "👑 Administrador"
                 texto_rol_header.color = COLOR_VERDE
                 estado["pestana_activa"] = 0
-                dialogo_rol.open = False
+                page.close(dialogo_rol)
                 page.navigation_bar = construir_barra_navegacion()
                 page.navigation_bar.selected_index = 0
                 refrescar_vistas()
@@ -341,9 +343,7 @@ def main(page: ft.Page):
             bgcolor=COLOR_TARJETA,
             modal=True,
         )
-        page.overlay.append(dialogo_rol)
-        dialogo_rol.open = True
-        page.update()
+        page.open(dialogo_rol)
 
     # Loop del cronómetro y sincronización
     async def loop_reloj():

@@ -1,6 +1,7 @@
 from typing import Optional, Dict, List
 from backend.models.partido import Partido
 from backend.database.repositories import PartidoRepository
+from utils.time_utils import ordenar_eventos
 
 
 class PartidoService:
@@ -27,12 +28,38 @@ class PartidoService:
         return minutos_totales
 
     @staticmethod
+    def obtener_partido_por_id(partido_id: int) -> Optional[Partido]:
+        return PartidoRepository.obtener_por_id(partido_id)
+
+    @staticmethod
+    def actualizar_eventos_y_marcador(
+        partido_id: int,
+        eventos: List[dict],
+        goles_local: int,
+        goles_visita: int,
+        finalizado: Optional[bool] = None,
+    ) -> bool:
+        partido = PartidoRepository.obtener_por_id(partido_id)
+        if not partido:
+            return False
+        
+        partido.eventos = ordenar_eventos(eventos)
+        partido.goles_local = max(0, goles_local)
+        partido.goles_visita = max(0, goles_visita)
+        if finalizado is not None:
+            partido.finalizado = finalizado
+        partido.jugado = True
+        
+        return PartidoRepository.actualizar(partido)
+
+    @staticmethod
     def guardar_estado_partido(
         partido: Partido,
         goles_local: int,
         goles_rival: int,
         equipo_principal: str,
     ) -> bool:
+        partido.eventos = ordenar_eventos(partido.eventos)
         # Determinar goles correctos según si es local o visita
         if partido.equipo_local == equipo_principal:
             partido.goles_local = goles_local

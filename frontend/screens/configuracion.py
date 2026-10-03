@@ -6,6 +6,7 @@ from config.constants import (
 )
 from backend.services.grupo_service import GrupoService
 from backend.services.partido_service import PartidoService
+from frontend.screens.mantenedor_eventos import mostrar_dialogo_mantenedor_eventos
 
 
 class ConfiguracionScreen:
@@ -63,15 +64,16 @@ class ConfiguracionScreen:
             last_date=datetime(2035, 12, 31),
             on_change=on_date_picked,
         )
-        if date_picker not in self.page.overlay:
-            self.page.overlay.append(date_picker)
+
+        def abrir_calendario(e):
+            self.page.open(date_picker)
 
         row_filtro = ft.Row([
             tf_buscar_fecha,
             ft.IconButton(
                 icon=ft.Icons.CALENDAR_MONTH,
                 icon_color=COLOR_CELESTE,
-                on_click=lambda e: setattr(date_picker, 'open', True) or self.page.update(),
+                on_click=abrir_calendario,
                 tooltip="Seleccionar Fecha"
             ),
             ft.IconButton(
@@ -228,7 +230,7 @@ class ConfiguracionScreen:
                         else p["equipo_local"]
                     )
 
-                    if p["finalizado"]:
+                    if p.get("finalizado", False):
                         texto_estado = "Finalizado"
                         color_estado = COLOR_ROJO
                     elif es_activo:
@@ -250,6 +252,7 @@ class ConfiguracionScreen:
                             color=COLOR_TEXTO,
                             on_click=crear_handler_select(p),
                         )
+                        acciones_card = accion_ui
                     else:
                         accion_ui = ft.ElevatedButton(
                             "Seleccionar" if not es_activo else "En Curso",
@@ -259,8 +262,20 @@ class ConfiguracionScreen:
                             color=COLOR_TEXTO,
                             on_click=crear_handler_select(p),
                         )
-                        if p["finalizado"] and not es_activo:
+                        if p.get("finalizado", False) and not es_activo:
                             accion_ui.text = "Finalizado"
+
+                        acciones_card = ft.Row([
+                            accion_ui,
+                            ft.IconButton(
+                                icon=ft.Icons.EDIT_NOTE,
+                                icon_color=COLOR_CELESTE,
+                                tooltip="🛠️ Mantenedor de Eventos",
+                                on_click=lambda e, pid=p["id"]: mostrar_dialogo_mantenedor_eventos(
+                                    self.page, self.estado, self.callbacks, pid
+                                ),
+                            ),
+                        ], spacing=4)
 
                     card = ft.Container(
                         content=ft.Row([
@@ -277,7 +292,7 @@ class ConfiguracionScreen:
                                     size=12,
                                 ),
                             ], spacing=2),
-                            accion_ui,
+                            acciones_card,
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         padding=10,
                         bgcolor=COLOR_TARJETA,
@@ -375,8 +390,17 @@ class ConfiguracionScreen:
                                 ft.IconButton(
                                     icon=ft.Icons.SAVE,
                                     icon_color=COLOR_CELESTE,
+                                    tooltip="Guardar Marcador",
                                     on_click=crear_handler_guardar_rival(
                                         p["id"], tf_g_loc, tf_g_vis
+                                    ),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.EDIT_NOTE,
+                                    icon_color=COLOR_CELESTE,
+                                    tooltip="🛠️ Mantenedor de Eventos",
+                                    on_click=lambda e, pid=p["id"]: mostrar_dialogo_mantenedor_eventos(
+                                        self.page, self.estado, self.callbacks, pid
                                     ),
                                 ),
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -396,11 +420,23 @@ class ConfiguracionScreen:
         ]
 
         elementos_columna.extend([
-            ft.Text(
-                f"Partidos de {self.estado['config']['equipo_principal']}",
-                weight=ft.FontWeight.BOLD,
-                color=COLOR_CELESTE,
-            ),
+            ft.Row([
+                ft.Text(
+                    f"Partidos de {self.estado['config']['equipo_principal']}",
+                    weight=ft.FontWeight.BOLD,
+                    color=COLOR_CELESTE,
+                ),
+                ft.ElevatedButton(
+                    "🛠️ Mantenedor de Eventos",
+                    icon=ft.Icons.EDIT_NOTE,
+                    bgcolor=COLOR_TARJETA,
+                    color=COLOR_CELESTE,
+                    visible=not self.estado["es_invitado"],
+                    on_click=lambda e: mostrar_dialogo_mantenedor_eventos(
+                        self.page, self.estado, self.callbacks
+                    ),
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Column(
                 controls=partidos_mi_equipo_ui or [ft.Text("Sin partidos asignados", color=COLOR_SUBTEXTO)],
                 spacing=8,
@@ -507,8 +543,7 @@ class ConfiguracionScreen:
             )
 
             def cerrar_dlg(ev):
-                dialogo_reset.open = False
-                self.page.update()
+                self.page.close(dialogo_reset)
 
             def procesar_reset(ev):
                 GrupoService.eliminar_grupo_por_fecha(fecha_a_borrar, self.estado["es_invitado"])
@@ -530,7 +565,7 @@ class ConfiguracionScreen:
 
                 texto_feedback_grupo.value = f"🔄 Información del día {fecha_a_borrar} eliminada de la BD."
                 texto_feedback_grupo.color = COLOR_VERDE
-                dialogo_reset.open = False
+                self.page.close(dialogo_reset)
                 self.callbacks["cargar_grupo"]()
                 self.callbacks["refrescar_vistas"]()
                 self.page.update()
@@ -549,9 +584,7 @@ class ConfiguracionScreen:
                 ],
                 bgcolor=COLOR_TARJETA,
             )
-            self.page.overlay.append(dialogo_reset)
-            dialogo_reset.open = True
-            self.page.update()
+            self.page.open(dialogo_reset)
 
         if not self.estado["es_invitado"]:
             elementos_columna.append(

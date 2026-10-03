@@ -1,4 +1,41 @@
 from datetime import datetime, timezone
+import re
+from typing import List, Dict, Any
+
+
+def parsear_minuto(minuto_val) -> float:
+    """Extrae el valor numérico en minutos desde strings como '12'', '05'', '45+2'', '10:30', etc."""
+    if isinstance(minuto_val, (int, float)):
+        return float(minuto_val)
+    if not minuto_val:
+        return 0.0
+    s = str(minuto_val).strip().replace("'", "").replace('"', '')
+    if ":" in s:
+        try:
+            parts = s.split(":")
+            return float(parts[0]) + float(parts[1]) / 60.0
+        except Exception:
+            pass
+    if "+" in s:
+        try:
+            parts = s.split("+")
+            return float(parts[0]) + float(parts[1])
+        except Exception:
+            pass
+    match = re.search(r"(\d+(?:\.\d+)?)", s)
+    if match:
+        try:
+            return float(match.group(1))
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def ordenar_eventos(eventos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ordena una lista de eventos cronológicamente por sus minutos"""
+    if not eventos:
+        return []
+    return sorted(eventos, key=lambda ev: parsear_minuto(ev.get("minuto", "00'")))
 
 
 def formatear_tiempo(segs: int) -> str:

@@ -68,12 +68,11 @@ class PlantelScreen:
             mins = minutos_totales.get(nom_jugador, 0) // 60
 
             def cerrar_dlg(ev):
-                dlg_confirm.open = False
-                self.page.update()
+                self.page.close(dlg_confirm)
 
             def procesar_borrado(ev):
                 JugadorService.eliminar(nom_jugador, self.estado["es_invitado"])
-                dlg_confirm.open = False
+                self.page.close(dlg_confirm)
                 self.callbacks["refrescar_vistas"]()
                 self.page.update()
 
@@ -90,9 +89,7 @@ class PlantelScreen:
                 ],
                 bgcolor=COLOR_TARJETA,
             )
-            self.page.overlay.append(dlg_confirm)
-            dlg_confirm.open = True
-            self.page.update()
+            self.page.open(dlg_confirm)
 
         titulares_ui, suplentes_ui = [], []
         fecha_filtro = (

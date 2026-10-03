@@ -5,7 +5,11 @@ from config.constants import (
     COLOR_TEXTO, COLOR_SUBTEXTO, COLOR_VERDE, COLOR_ROJO, COLOR_AMBAR, EVENTOS_DEFECTO
 )
 from backend.services.jugador_service import JugadorService
-from utils.time_utils import obtener_segundos_actuales, actualizar_minutos_jugadores, formatear_tiempo
+from backend.services.partido_service import PartidoService
+from frontend.screens.mantenedor_eventos import mostrar_dialogo_mantenedor_eventos
+from utils.time_utils import (
+    obtener_segundos_actuales, actualizar_minutos_jugadores, formatear_tiempo, ordenar_eventos
+)
 
 
 class PartidoScreen:
@@ -229,6 +233,7 @@ class PartidoScreen:
                     "jugador": jugador_sel,
                 })
 
+            self.estado["eventos_registrados"] = ordenar_eventos(self.estado["eventos_registrados"])
             self.callbacks["guardar_partido"]()
             self.callbacks["refrescar_vistas"]()
             self.page.update()
@@ -279,7 +284,7 @@ class PartidoScreen:
                             icon=ft.Icons.DELETE_OUTLINED,
                             icon_color=COLOR_ROJO,
                             icon_size=16,
-                            disabled=es_fin or self.estado["es_invitado"],
+                            disabled=self.estado["es_invitado"],
                             tooltip="Eliminar evento",
                             on_click=crear_handler_eliminar_evento(ev)
                         )
@@ -357,7 +362,7 @@ class PartidoScreen:
                     icon=ft.Icons.ADD_TASK,
                     bgcolor=COLOR_CELESTE_BOTON,
                     color=COLOR_TEXTO,
-                    disabled=es_fin,
+                    disabled=self.estado["es_invitado"],
                     on_click=registrar_evento_click,
                 ),
                 texto_status_evento,
@@ -365,11 +370,23 @@ class PartidoScreen:
             ])
 
         elementos_partido.extend([
-            ft.Text(
-                "📜 Historial de Eventos del Partido",
-                weight=ft.FontWeight.BOLD,
-                color=COLOR_CELESTE,
-            ),
+            ft.Row([
+                ft.Text(
+                    "📜 Historial de Eventos del Partido",
+                    weight=ft.FontWeight.BOLD,
+                    color=COLOR_CELESTE,
+                ),
+                ft.ElevatedButton(
+                    "🛠️ Mantenedor de Eventos",
+                    icon=ft.Icons.EDIT_NOTE,
+                    bgcolor=COLOR_TARJETA,
+                    color=COLOR_CELESTE,
+                    visible=not self.estado["es_invitado"],
+                    on_click=lambda e: mostrar_dialogo_mantenedor_eventos(
+                        self.page, self.estado, self.callbacks, self.estado.get("partido_activo_id")
+                    ),
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Column(controls=eventos_ui, spacing=6),
         ])
 
