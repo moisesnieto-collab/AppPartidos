@@ -1,7 +1,11 @@
-venv-antiguo/
+venv*/
+venv/
 .idea/
 estado_torneo.json
-venv312/
+estado_partido_id.json
 *.db
-.idea/
 __pycache__/
+*.pyc
+.DS_Store
+.output.txt
+*.output.txt

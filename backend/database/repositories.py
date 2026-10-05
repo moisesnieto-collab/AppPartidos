@@ -50,6 +50,51 @@ class JugadorRepository:
             conn.close()
 
     @staticmethod
+    def importar_masivo(jugadores: List[dict], reemplazar: bool = False) -> tuple:
+        """
+        Inserta o actualiza una lista de jugadores.
+        Si reemplazar=True, borra los jugadores existentes previamente.
+        Retorna (insertados, actualizados).
+        """
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            if reemplazar:
+                cursor.execute("DELETE FROM jugadores")
+
+            insertados = 0
+            actualizados = 0
+            for j in jugadores:
+                nom = j.get("nombre", "").strip()
+                num = str(j.get("numero", "0")).strip()
+                puesto = j.get("puesto", "Jugador").strip() or "Jugador"
+                if not nom:
+                    continue
+
+                cursor.execute("SELECT id FROM jugadores WHERE nombre = ?", (nom,))
+                existe = cursor.fetchone()
+                if existe:
+                    cursor.execute(
+                        "UPDATE jugadores SET numero = ?, puesto = ? WHERE nombre = ?",
+                        (num, puesto, nom)
+                    )
+                    actualizados += 1
+                else:
+                    cursor.execute(
+                        "INSERT INTO jugadores (numero, nombre, puesto) VALUES (?, ?, ?)",
+                        (num, nom, puesto)
+                    )
+                    insertados += 1
+
+            conn.commit()
+            return (insertados, actualizados)
+        except Exception as e:
+            conn.rollback()
+            return (0, 0)
+        finally:
+            conn.close()
+
+    @staticmethod
     def contar() -> int:
         conn = conectar_bd()
         try:

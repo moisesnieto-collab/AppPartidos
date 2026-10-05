@@ -5,6 +5,7 @@ from config.constants import (
 )
 from backend.services.jugador_service import JugadorService
 from backend.services.partido_service import PartidoService
+from frontend.screens.carga_plantel import mostrar_dialogo_carga_plantel
 from utils.time_utils import actualizar_minutos_jugadores
 
 
@@ -172,8 +173,24 @@ class PlantelScreen:
             else:
                 suplentes_ui.append(fila)
 
-        elementos_plantel = [
+        header_plantel = ft.Row([
             ft.Text("📋 Plantel de Jugadores", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        if not self.estado["es_invitado"]:
+            header_plantel.controls.append(
+                ft.ElevatedButton(
+                    "⚡ Carga Rápida",
+                    icon=ft.Icons.UPLOAD_FILE,
+                    bgcolor=COLOR_CELESTE_BOTON,
+                    color=COLOR_TEXTO,
+                    on_click=lambda e: mostrar_dialogo_carga_plantel(self.page, self.estado, self.callbacks),
+                    tooltip="Importar lista desde WhatsApp o archivo Excel/CSV"
+                )
+            )
+
+        elementos_plantel = [
+            header_plantel,
             ft.Container(
                 content=ft.Row([
                     ft.Text("Titulares en cancha:", color=COLOR_TEXTO, weight=ft.FontWeight.W_500),

@@ -36,3 +36,9 @@ class JugadorService:
         if es_invitado:
             return False
         return JugadorRepository.eliminar(nombre)
+
+    @staticmethod
+    def importar_plantel(jugadores: List[dict], reemplazar: bool = False, es_invitado: bool = False) -> tuple:
+        if es_invitado or not jugadores:
+            return (0, 0)
+        return JugadorRepository.importar_masivo(jugadores, reemplazar=reemplazar)
