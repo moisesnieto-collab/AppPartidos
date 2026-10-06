@@ -107,6 +107,17 @@ class JugadorRepository:
 
 class GrupoRepository:
     @staticmethod
+    def obtener_fechas_con_datos() -> List[str]:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT fecha FROM grupos WHERE fecha IS NOT NULL AND fecha != '' ORDER BY fecha DESC")
+            rows = cursor.fetchall()
+            return [r[0] for r in rows if r[0]]
+        finally:
+            conn.close()
+
+    @staticmethod
     def obtener_todos_por_fecha(fecha: str) -> List[Grupo]:
         conn = conectar_bd()
         try:
@@ -628,6 +639,13 @@ class DatabaseInitializer:
                     cursor.execute(f"ALTER TABLE partidos ADD COLUMN {col_nombre} {col_tipo}")
                 except Exception:
                     pass
+
+            # Crear índices para acelerar búsquedas por fecha
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_grupos_fecha ON grupos(fecha)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_fecha ON partidos(fecha)")
+            except Exception:
+                pass
 
             # Insertar datos iniciales si la tabla está vacía
             if JugadorRepository.contar() == 0:

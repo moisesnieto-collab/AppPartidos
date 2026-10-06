@@ -7,6 +7,13 @@ from backend.database.repositories import GrupoRepository, PartidoRepository, To
 
 class GrupoService:
     @staticmethod
+    def obtener_fechas_con_cuadrangulares() -> List[str]:
+        """
+        Retorna la lista de fechas únicas que tienen cuadrangulares/grupos registrados en la BD.
+        """
+        return GrupoRepository.obtener_fechas_con_datos()
+
+    @staticmethod
     def calcular_tabla_grupo(partidos: List[Any], equipos: List[str]) -> List[Dict[str, Any]]:
         """
         Calcula la tabla de posiciones para una lista de partidos y equipos dados.

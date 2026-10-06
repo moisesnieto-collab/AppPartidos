@@ -91,6 +91,57 @@ class ConfiguracionScreen:
             )
         ])
 
+        fecha_actual_filtro = self.estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d"))
+
+        def seleccionar_fecha_directa(f_str):
+            tf_buscar_fecha.value = f_str
+            click_buscar_fecha()
+
+        fechas_registradas = GrupoService.obtener_fechas_con_cuadrangulares()
+        chips_fechas = []
+        for f_str in fechas_registradas:
+            es_sel = (f_str == fecha_actual_filtro)
+            chips_fechas.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(
+                            ft.Icons.EMOJI_EVENTS if es_sel else ft.Icons.EVENT_NOTE,
+                            size=13,
+                            color=COLOR_AMBAR if es_sel else COLOR_CELESTE
+                        ),
+                        ft.Text(
+                            f_str,
+                            size=12,
+                            weight=ft.FontWeight.BOLD if es_sel else ft.FontWeight.NORMAL,
+                            color=COLOR_TEXTO if es_sel else COLOR_SUBTEXTO
+                        ),
+                    ], spacing=4, alignment=ft.MainAxisAlignment.CENTER),
+                    bgcolor=ft.Colors.with_opacity(0.25, COLOR_CELESTE) if es_sel else COLOR_TARJETA,
+                    border=ft.border.all(1.5 if es_sel else 1, COLOR_CELESTE if es_sel else COLOR_BORDE),
+                    border_radius=8,
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    ink=True,
+                    on_click=lambda e, f=f_str: seleccionar_fecha_directa(f),
+                    tooltip=f"Ver cuadrangular del {f_str}",
+                )
+            )
+
+        barra_fechas_historial = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.Icons.HISTORY, size=15, color=COLOR_CELESTE),
+                    ft.Text(
+                        f"Fechas con Cuadrangulares ({len(fechas_registradas)}):",
+                        size=12,
+                        weight=ft.FontWeight.BOLD,
+                        color=COLOR_CELESTE,
+                    ),
+                ], spacing=6),
+                ft.Row(chips_fechas, scroll=ft.ScrollMode.ADAPTIVE, spacing=8),
+            ], spacing=6),
+            padding=ft.padding.only(top=2, bottom=4),
+        ) if fechas_registradas else None
+
         grupos_dia = self.estado.get("grupos_dia", [])
         config_torneo = self.estado.get("config_torneo", {"partido_definicion": False})
         con_partido_def = config_torneo.get("partido_definicion", False)
@@ -244,11 +295,25 @@ class ConfiguracionScreen:
             padding=ft.Padding(0, 4, 0, 8),
         )
 
-        elementos_columna = [
-            ft.Text("📅 Buscar Cuadrangular por Fecha", size=16, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
-            row_filtro,
-            ft.Divider(height=10, color=COLOR_BORDE),
-        ]
+        if self.estado["es_invitado"]:
+            elementos_columna = [
+                ft.Text("📅 Cuadrangulares por Fecha", size=16, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+            ]
+            if barra_fechas_historial:
+                elementos_columna.append(barra_fechas_historial)
+            else:
+                elementos_columna.append(
+                    ft.Text("No hay cuadrangulares registrados actualmente.", size=12, color=COLOR_SUBTEXTO)
+                )
+        else:
+            elementos_columna = [
+                ft.Text("📅 Buscar Cuadrangular por Fecha", size=16, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+                row_filtro,
+            ]
+            if barra_fechas_historial:
+                elementos_columna.append(barra_fechas_historial)
+
+        elementos_columna.append(ft.Divider(height=10, color=COLOR_BORDE))
 
         if grupos_dia:
             elementos_columna.append(barra_chips)
