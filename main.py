@@ -12,6 +12,7 @@ from config.constants import (
 from backend.database.repositories import DatabaseInitializer
 from backend.services.grupo_service import GrupoService
 from backend.services.partido_service import PartidoService
+from backend.services.usuario_service import UsuarioService
 from backend.models.partido import Partido
 from frontend.screens.configuracion import ConfiguracionScreen
 from frontend.screens.plantel import PlantelScreen
@@ -56,6 +57,10 @@ def main(page: ft.Page):
         "titulares_seleccionados": [],
         "eventos_registrados": [],
         "es_invitado": True,
+        "es_superadmin": False,
+        "usuario_autenticado": None,
+        "equipo_activo": "Real Dunalastair",
+        "equipo_seguido_invitado": "Real Dunalastair",
         "fecha_filtro": datetime.now().strftime("%Y-%m-%d"),
         "config": {
             "equipo_principal": "Real Dunalastair",
@@ -75,28 +80,51 @@ def main(page: ft.Page):
         estado["config_torneo"] = datos_dia.get("config_torneo", {"partido_definicion": False})
         estado["partido_definicion"] = datos_dia.get("partido_definicion")
 
+        target_team = (
+            estado.get("equipo_seguido_invitado", "Real Dunalastair")
+            if estado["es_invitado"]
+            else (estado.get("equipo_activo") or "Real Dunalastair")
+        )
+
         if grupos:
-            grupo_principal_data = next((g for g in grupos if g["grupo"].get("es_principal")), grupos[0])
+            # Buscar el grupo que contenga a target_team
+            grupo_target_data = None
+            for g in grupos:
+                grupo_obj = g["grupo"]
+                if grupo_obj.get("equipo_principal") == target_team or target_team in grupo_obj.get("equipos", []):
+                    grupo_target_data = g
+                    break
+            
+            if not grupo_target_data:
+                grupo_target_data = next((g for g in grupos if g["grupo"].get("es_principal")), grupos[0])
             
             sel_id = estado.get("grupo_seleccionado_id")
             grupo_sel_data = next((g for g in grupos if g["grupo"]["id"] == sel_id), None)
             if not grupo_sel_data:
-                grupo_sel_data = grupo_principal_data
+                grupo_sel_data = grupo_target_data
                 estado["grupo_seleccionado_id"] = grupo_sel_data["grupo"]["id"]
 
             estado["grupo_activo"] = grupo_sel_data["grupo"]
             estado["partidos_grupo"] = grupo_sel_data["partidos"]
 
-            # Si el partido activo no está en el grupo principal o no existe, asociar partido principal
-            partidos_principales = [p for p in grupo_principal_data["partidos"] if p["es_principal"]]
-            if partidos_principales:
-                if estado["partido_activo_id"] is None or not any(p["id"] == estado["partido_activo_id"] for p in partidos_principales):
+            # Buscar partidos del equipo target
+            partidos_target = [
+                p for p in grupo_target_data["partidos"]
+                if p["equipo_local"] == target_team or p["equipo_visita"] == target_team
+            ]
+            if not partidos_target:
+                partidos_target = grupo_target_data["partidos"]
+
+            if partidos_target:
+                if estado["partido_activo_id"] is None or not any(p["id"] == estado["partido_activo_id"] for p in partidos_target):
                     if estado["es_invitado"]:
-                        en_curso = next((p for p in partidos_principales if p["hora_inicio"] is not None or (
-                            p["segundos"] > 0 and not p["finalizado"])), None)
-                        activar_partido_memoria(en_curso if en_curso else partidos_principales[0])
+                        en_curso = next(
+                            (p for p in partidos_target if p["hora_inicio"] is not None or (p["segundos"] > 0 and not p["finalizado"])),
+                            None
+                        )
+                        activar_partido_memoria(en_curso if en_curso else partidos_target[0])
                     else:
-                        activar_partido_memoria(partidos_principales[0])
+                        activar_partido_memoria(partidos_target[0])
         else:
             estado["grupos_dia"] = []
             estado["grupo_seleccionado_id"] = None
@@ -121,19 +149,28 @@ def main(page: ft.Page):
         if not partido:
             return
         
-        eq_principal = (
-            estado["grupo_activo"]["equipo_principal"]
-            if estado["grupo_activo"]
-            else "Real Dunalastair"
+        target_team = (
+            estado.get("equipo_seguido_invitado", "Real Dunalastair")
+            if estado["es_invitado"]
+            else (estado.get("equipo_activo") or "Real Dunalastair")
         )
-        estado["config"]["equipo_principal"] = eq_principal
 
-        es_local = partido["equipo_local"] == eq_principal
-        rival = partido["equipo_visita"] if es_local else partido["equipo_local"]
+        es_mi_equipo_en_partido = (partido["equipo_local"] == target_team or partido["equipo_visita"] == target_team)
+
+        if es_mi_equipo_en_partido:
+            es_local = (partido["equipo_local"] == target_team)
+            rival = partido["equipo_visita"] if es_local else partido["equipo_local"]
+            estado["config"]["equipo_principal"] = target_team
+            estado["config"]["equipo_rival"] = rival
+            estado["goles_local"] = partido["goles_local"] if es_local else partido["goles_visita"]
+            estado["goles_rival"] = partido["goles_visita"] if es_local else partido["goles_local"]
+        else:
+            estado["config"]["equipo_principal"] = partido["equipo_local"]
+            estado["config"]["equipo_rival"] = partido["equipo_visita"]
+            estado["goles_local"] = partido["goles_local"]
+            estado["goles_rival"] = partido["goles_visita"]
 
         estado["partido_activo_id"] = partido["id"]
-        estado["goles_local"] = partido["goles_local"] if es_local else partido["goles_visita"]
-        estado["goles_rival"] = partido["goles_visita"] if es_local else partido["goles_local"]
         estado["segundos_acumulados"] = partido.get("segundos_acumulados", partido["segundos"])
         estado["segs_al_iniciar"] = estado["segundos_acumulados"]
         estado["hora_inicio"] = partido.get("hora_inicio")
@@ -147,7 +184,6 @@ def main(page: ft.Page):
         estado["finalizado"] = bool(partido.get("finalizado", False))
 
         estado["config"].update({
-            "equipo_rival": rival,
             "tiempos_por_partido": partido["tiempos_por_partido"],
             "minutos_por_tiempo": partido["minutos_por_tiempo"],
             "jugadores_en_cancha": partido["jugadores_en_cancha"],
@@ -208,8 +244,141 @@ def main(page: ft.Page):
     contenedor_partido = ft.Container(content=screen_partido.build(), expand=True, visible=False)
     contenedor_estadisticas = ft.Container(content=screen_estadisticas.build(), expand=True, visible=False)
 
+    # Header con rol
+    texto_rol_header = ft.Text(
+        "👤 Invitado",
+        size=10,
+        weight=ft.FontWeight.BOLD,
+        color=COLOR_AMBAR,
+    )
+
+    def construir_header_app():
+        equipos_dia = set()
+        for g in estado.get("grupos_dia", []):
+            grupo_obj = g.get("grupo", {})
+            if grupo_obj.get("equipo_principal"):
+                equipos_dia.add(grupo_obj["equipo_principal"])
+            for eq in grupo_obj.get("equipos", []):
+                if eq:
+                    equipos_dia.add(eq)
+        if not equipos_dia:
+            equipos_dia.add("Real Dunalastair")
+
+        if estado["es_invitado"]:
+            eq_seguido = estado.get("equipo_seguido_invitado", "Real Dunalastair")
+            if eq_seguido not in equipos_dia and equipos_dia:
+                eq_seguido = sorted(equipos_dia)[0]
+                estado["equipo_seguido_invitado"] = eq_seguido
+
+            def on_cambiar_equipo_seguido(e):
+                estado["equipo_seguido_invitado"] = e.control.value
+                estado["partido_activo_id"] = None
+                estado["grupo_seleccionado_id"] = None
+                cargar_grupo()
+                refrescar_vistas()
+                actualizar_header_app()
+                page.update()
+
+            selector_invitado = ft.Row([
+                ft.Icon(ft.Icons.VISIBILITY, size=13, color=COLOR_AMBAR),
+                ft.Text("Siguiendo:", size=11, weight=ft.FontWeight.BOLD, color=COLOR_SUBTEXTO),
+                ft.Dropdown(
+                    value=eq_seguido,
+                    options=[ft.dropdown.Option(eq) for eq in sorted(equipos_dia)],
+                    width=150,
+                    text_size=11,
+                    content_padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    border_color=COLOR_AMBAR,
+                    focused_border_color=COLOR_CELESTE,
+                    border_radius=8,
+                    on_change=on_cambiar_equipo_seguido,
+                ),
+            ], spacing=4)
+
+            lado_izquierdo = ft.Row([
+                ft.Row([
+                    ft.Icon(ft.Icons.SPORTS_SOCCER, color=COLOR_CELESTE, size=20),
+                    ft.Text("Cuadrangulares", weight=ft.FontWeight.BOLD, size=13, color=COLOR_TEXTO),
+                ], spacing=4),
+                selector_invitado,
+            ], spacing=8)
+
+        elif estado.get("es_superadmin", False):
+            eq_gestionado = estado.get("equipo_activo")
+            if eq_gestionado not in equipos_dia:
+                eq_gestionado = sorted(equipos_dia)[0]
+                estado["equipo_activo"] = eq_gestionado
+
+            def on_cambiar_equipo_gestionado(e):
+                estado["equipo_activo"] = e.control.value
+                estado["config"]["equipo_principal"] = e.control.value
+                estado["partido_activo_id"] = None
+                estado["grupo_seleccionado_id"] = None
+                cargar_grupo()
+                refrescar_vistas()
+                page.update()
+
+            lado_izquierdo = ft.Row([
+                ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS, color=COLOR_VERDE, size=20),
+                ft.Text("SuperAdmin", weight=ft.FontWeight.BOLD, size=13, color=COLOR_TEXTO),
+                ft.Dropdown(
+                    value=eq_gestionado,
+                    options=[ft.dropdown.Option(eq) for eq in sorted(equipos_dia)],
+                    width=150,
+                    text_size=11,
+                    content_padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    border_color=COLOR_VERDE,
+                    focused_border_color=COLOR_CELESTE,
+                    border_radius=8,
+                    on_change=on_cambiar_equipo_gestionado,
+                ),
+            ], spacing=6)
+
+        else:
+            eq_adm = estado.get("equipo_activo") or "Real Dunalastair"
+            contacto = estado.get("usuario_autenticado", {}).get("nombre_contacto", "Delegado")
+            lado_izquierdo = ft.Row([
+                ft.Icon(ft.Icons.SPORTS_SOCCER, color=COLOR_CELESTE, size=20),
+                ft.Text(f"{eq_adm} ({contacto})", weight=ft.FontWeight.BOLD, size=14, color=COLOR_TEXTO),
+            ], spacing=6)
+
+        return ft.Row(
+            [
+                lado_izquierdo,
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=texto_rol_header,
+                            bgcolor=COLOR_BORDE,
+                            padding=ft.Padding(8, 3, 8, 3),
+                            border_radius=8,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.LOGOUT,
+                            icon_size=16,
+                            icon_color=COLOR_ROJO,
+                            tooltip="Cambiar de Rol",
+                            on_click=lambda e: mostrar_dialogo_rol(),
+                        )
+                    ],
+                    spacing=4,
+                )
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
+
+    header_app = ft.Container(
+        content=construir_header_app(),
+        padding=ft.Padding(12, 10, 12, 10),
+        bgcolor=COLOR_TARJETA,
+    )
+
+    def actualizar_header_app():
+        header_app.content = construir_header_app()
+
     # Implementar refrescar_vistas
     def refrescar_vistas():
+        actualizar_header_app()
         contenedor_config.content = screen_config.build()
         contenedor_plantel.content = screen_plantel.build()
         contenedor_partido.content = screen_partido.build()
@@ -285,20 +454,13 @@ def main(page: ft.Page):
                 contenedor_estadisticas.content = screen_estadisticas.build()
         page.update()
 
-    # Header con rol
-    texto_rol_header = ft.Text(
-        "👤 Invitado",
-        size=10,
-        weight=ft.FontWeight.BOLD,
-        color=COLOR_AMBAR,
-    )
-
     # Diálogo de selección de rol
     def mostrar_dialogo_rol():
         tf_clave = ft.TextField(
             label="RUT (sin puntos ni guion)",
+            hint_text="Ej: 11165045 o RUT de delegado",
             password=True,
-            width=200,
+            width=220,
             border_color=COLOR_BORDE,
             focused_border_color=COLOR_CELESTE,
             border_radius=10,
@@ -307,29 +469,44 @@ def main(page: ft.Page):
 
         def seleccionar_invitado(e):
             estado["es_invitado"] = True
+            estado["es_superadmin"] = False
+            estado["usuario_autenticado"] = None
+            estado["partido_activo_id"] = None
+            estado["grupo_seleccionado_id"] = None
             texto_rol_header.value = "👤 Invitado"
             texto_rol_header.color = COLOR_AMBAR
             estado["pestana_activa"] = 0
             page.close(dialogo_rol)
-            page.navigation_bar = construir_barra_navegacion()
-            page.navigation_bar.selected_index = 0
+            cargar_grupo()
             refrescar_vistas()
             page.update()
 
         def verificar_admin(e):
-            rut_limpio = tf_clave.value.replace(".", "").replace("-", "") if tf_clave.value else ""
-            if rut_limpio == "11165045":  # RUT del administrador
+            rut_input = tf_clave.value or ""
+            user = UsuarioService.autenticar(rut_input)
+            if user:
                 estado["es_invitado"] = False
-                texto_rol_header.value = "👑 Administrador"
-                texto_rol_header.color = COLOR_VERDE
+                estado["usuario_autenticado"] = user
+                estado["es_superadmin"] = bool(user["es_superadmin"])
+                estado["equipo_activo"] = user["equipo_asignado"]
+                estado["config"]["equipo_principal"] = user["equipo_asignado"]
+                estado["partido_activo_id"] = None
+                estado["grupo_seleccionado_id"] = None
+
+                if user["es_superadmin"]:
+                    texto_rol_header.value = "👑 SuperAdmin"
+                    texto_rol_header.color = COLOR_VERDE
+                else:
+                    texto_rol_header.value = f"🛡️ DT {user['equipo_asignado']}"
+                    texto_rol_header.color = COLOR_CELESTE
+
                 estado["pestana_activa"] = 0
                 page.close(dialogo_rol)
-                page.navigation_bar = construir_barra_navegacion()
-                page.navigation_bar.selected_index = 0
+                cargar_grupo()
                 refrescar_vistas()
                 page.update()
             else:
-                texto_error.value = "❌ RUT incorrecto. Acceso denegado."
+                texto_error.value = "❌ RUT no registrado. Ingrese un RUT válido de administrador o delegado."
                 page.update()
 
         dialogo_rol = ft.AlertDialog(
@@ -345,10 +522,10 @@ def main(page: ft.Page):
                         on_click=seleccionar_invitado,
                     ),
                     ft.Divider(color=COLOR_BORDE),
-                    ft.Text("Acceso Administrador:", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                    ft.Text("Acceso Administrador / Delegado:", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                     tf_clave,
                     ft.ElevatedButton(
-                        "Entrar como Administrador",
+                        "Entrar con RUT",
                         icon=ft.Icons.LOCK_OPEN,
                         bgcolor=COLOR_CELESTE_BOTON,
                         color=COLOR_TEXTO,
@@ -430,47 +607,6 @@ def main(page: ft.Page):
                 pass
 
     page.run_task(loop_reloj)
-
-    # Header
-    header_app = ft.Container(
-        content=ft.Row(
-            [
-                ft.Row(
-                    [
-                        ft.Icon(ft.Icons.SPORTS_SOCCER, color=COLOR_CELESTE, size=22),
-                        ft.Text(
-                            "Real Dunalastair FC",
-                            weight=ft.FontWeight.BOLD,
-                            size=15,
-                            color=COLOR_TEXTO,
-                        ),
-                    ],
-                    spacing=6,
-                ),
-                ft.Row(
-                    [
-                        ft.Container(
-                            content=texto_rol_header,
-                            bgcolor=COLOR_BORDE,
-                            padding=ft.Padding(8, 3, 8, 3),
-                            border_radius=8,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.LOGOUT,
-                            icon_size=16,
-                            icon_color=COLOR_ROJO,
-                            tooltip="Cambiar de Rol",
-                            on_click=lambda e: mostrar_dialogo_rol(),
-                        )
-                    ],
-                    spacing=4,
-                )
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        ),
-        padding=ft.Padding(12, 10, 12, 10),
-        bgcolor=COLOR_TARJETA,
-    )
 
     # Layout principal
     app_layout = ft.Container(

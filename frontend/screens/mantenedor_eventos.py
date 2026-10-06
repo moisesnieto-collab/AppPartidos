@@ -20,11 +20,22 @@ def mostrar_dialogo_mantenedor_eventos(
     if estado.get("es_invitado", True):
         return
 
-    partidos = estado.get("partidos_grupo", [])
+    es_superadmin = estado.get("es_superadmin", False)
+    mi_equipo = estado.get("equipo_activo") or "Real Dunalastair"
+
+    partidos_todos = estado.get("partidos_grupo", [])
+    if es_superadmin:
+        partidos = partidos_todos
+    else:
+        partidos = [
+            p for p in partidos_todos
+            if p.get("equipo_local") == mi_equipo or p.get("equipo_visita") == mi_equipo
+        ]
+
     if not partidos:
         page.open(
             ft.SnackBar(
-                content=ft.Text("⚠️ No hay partidos cargados para la fecha seleccionada."),
+                content=ft.Text("⚠️ No hay partidos disponibles para tu equipo en este grupo."),
                 bgcolor=COLOR_AMBAR,
                 open=True,
             )
@@ -54,7 +65,10 @@ def mostrar_dialogo_mantenedor_eventos(
     goles_visita_val = [partido_obj.goles_visita]
     finalizado_val = [partido_obj.finalizado]
 
-    jugadores = JugadorService.obtener_todos_ordenados()
+    if es_superadmin:
+        jugadores = JugadorService.obtener_todos_ordenados()
+    else:
+        jugadores = JugadorService.obtener_todos_ordenados(equipo=mi_equipo, fecha=partido_obj.fecha)
     nombres_jugadores = [j["nombre"] for j in jugadores]
 
     # Contenedores dinámicos
@@ -64,29 +78,32 @@ def mostrar_dialogo_mantenedor_eventos(
     # Campos de goles
     tf_goles_local = ft.TextField(
         value=str(goles_local_val[0]),
-        label="Goles Local",
-        width=100,
+        label=f"Goles {partido_obj.equipo_local}",
+        width=110,
         text_align=ft.TextAlign.CENTER,
         keyboard_type=ft.KeyboardType.NUMBER,
         border_color=COLOR_BORDE,
         focused_border_color=COLOR_CELESTE,
         border_radius=8,
+        read_only=not es_superadmin and partido_obj.equipo_local != mi_equipo,
     )
     tf_goles_visita = ft.TextField(
         value=str(goles_visita_val[0]),
-        label="Goles Visita",
-        width=100,
+        label=f"Goles {partido_obj.equipo_visita}",
+        width=110,
         text_align=ft.TextAlign.CENTER,
         keyboard_type=ft.KeyboardType.NUMBER,
         border_color=COLOR_BORDE,
         focused_border_color=COLOR_CELESTE,
         border_radius=8,
+        read_only=not es_superadmin and partido_obj.equipo_visita != mi_equipo,
     )
     cb_finalizado = ft.Checkbox(
         label="Partido Finalizado",
         value=finalizado_val[0],
         fill_color=COLOR_CELESTE,
         check_color=COLOR_FONDO,
+        disabled=not es_superadmin and partido_obj.equipo_local != mi_equipo,
     )
 
     # Formulario para nuevo evento
@@ -110,13 +127,18 @@ def mostrar_dialogo_mantenedor_eventos(
         dense=True,
     )
 
-    opciones_jugadores = [ft.dropdown.Option("⚡ Equipo Rival")] + [
-        ft.dropdown.Option(nom) for nom in nombres_jugadores
-    ]
+    if es_superadmin:
+        opciones_jugadores = [ft.dropdown.Option("⚡ Gol Rival")] + [
+            ft.dropdown.Option(nom) for nom in nombres_jugadores
+        ]
+    else:
+        opciones_jugadores = [
+            ft.dropdown.Option(nom) for nom in nombres_jugadores
+        ]
     dd_jugador = ft.Dropdown(
-        label="Jugador / Equipo",
+        label=f"Jugador ({'Todos' if es_superadmin else mi_equipo})",
         options=opciones_jugadores,
-        value=nombres_jugadores[0] if nombres_jugadores else "⚡ Equipo Rival",
+        value=nombres_jugadores[0] if nombres_jugadores else (opciones_jugadores[0].key if opciones_jugadores else None),
         expand=True,
         border_color=COLOR_BORDE,
         focused_border_color=COLOR_CELESTE,
@@ -197,23 +219,32 @@ def mostrar_dialogo_mantenedor_eventos(
                     )
                 )
 
+                eq_ev = ev.get("equipo")
+                puede_editar_borrar = (
+                    es_superadmin or
+                    (eq_ev == mi_equipo or (not eq_ev and mi_equipo in jug))
+                )
+
                 def crear_handler_borrar(indice_a_borrar):
                     def handler_borrar(ev_btn):
+                        if not puede_editar_borrar:
+                            texto_feedback.value = "⚠️ Solo el DT del club autor o SuperAdmin puede eliminar este evento."
+                            texto_feedback.color = COLOR_ROJO
+                            page.update()
+                            return
                         ev_eliminado = eventos_locales.pop(indice_a_borrar)
                         # Si era gol, consultar si se descuenta gol
                         if ev_eliminado.get("evento") == "Gol":
                             jug_ev = ev_eliminado.get("jugador", "")
-                            eq_princ = estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
-                            es_local_princ = partido_obj.equipo_local == eq_princ
-                            if "Equipo Rival" in jug_ev or (partido_obj.equipo_visita in jug_ev if es_local_princ else partido_obj.equipo_local in jug_ev):
-                                if es_local_princ:
-                                    goles_visita_val[0] = max(0, int(tf_goles_visita.value or 0) - 1)
-                                    tf_goles_visita.value = str(goles_visita_val[0])
-                                else:
-                                    goles_local_val[0] = max(0, int(tf_goles_local.value or 0) - 1)
-                                    tf_goles_local.value = str(goles_local_val[0])
+                            eq_del_ev = ev_eliminado.get("equipo")
+                            if eq_del_ev == partido_obj.equipo_local or (not eq_del_ev and partido_obj.equipo_local in jug_ev):
+                                goles_local_val[0] = max(0, int(tf_goles_local.value or 0) - 1)
+                                tf_goles_local.value = str(goles_local_val[0])
+                            elif eq_del_ev == partido_obj.equipo_visita or (not eq_del_ev and partido_obj.equipo_visita in jug_ev):
+                                goles_visita_val[0] = max(0, int(tf_goles_visita.value or 0) - 1)
+                                tf_goles_visita.value = str(goles_visita_val[0])
                             else:
-                                if es_local_princ:
+                                if partido_obj.equipo_local == mi_equipo:
                                     goles_local_val[0] = max(0, int(tf_goles_local.value or 0) - 1)
                                     tf_goles_local.value = str(goles_local_val[0])
                                 else:
@@ -228,6 +259,11 @@ def mostrar_dialogo_mantenedor_eventos(
 
                 def crear_handler_editar(indice_a_editar):
                     def handler_editar(ev_btn):
+                        if not puede_editar_borrar:
+                            texto_feedback.value = "⚠️ Solo el DT del club autor o SuperAdmin puede editar este evento."
+                            texto_feedback.color = COLOR_ROJO
+                            page.update()
+                            return
                         ev_actual = eventos_locales[indice_a_editar]
                         tf_edit_min = ft.TextField(
                             value=ev_actual.get("minuto", ""),
@@ -284,16 +320,18 @@ def mostrar_dialogo_mantenedor_eventos(
                                 [
                                     ft.IconButton(
                                         icon=ft.Icons.EDIT_OUTLINED,
-                                        icon_color=COLOR_CELESTE,
+                                        icon_color=COLOR_CELESTE if puede_editar_borrar else COLOR_BORDE,
                                         icon_size=16,
-                                        tooltip="Editar minuto/detalle",
+                                        disabled=not puede_editar_borrar,
+                                        tooltip="Editar minuto/detalle" if puede_editar_borrar else f"Evento de {eq_ev or 'rival'}",
                                         on_click=crear_handler_editar(idx_real),
                                     ),
                                     ft.IconButton(
                                         icon=ft.Icons.DELETE_OUTLINED,
-                                        icon_color=COLOR_ROJO,
+                                        icon_color=COLOR_ROJO if puede_editar_borrar else COLOR_BORDE,
                                         icon_size=16,
-                                        tooltip="Eliminar evento",
+                                        disabled=not puede_editar_borrar,
+                                        tooltip="Eliminar evento" if puede_editar_borrar else f"Evento de {eq_ev or 'rival'}",
                                         on_click=crear_handler_borrar(idx_real),
                                     ),
                                 ],
@@ -358,20 +396,26 @@ def mostrar_dialogo_mantenedor_eventos(
             return
 
         if tipo_ev == "Gol":
-            if jug_sel == "⚡ Equipo Rival":
-                desc_ev = f"Gol de {partido_obj.equipo_visita if partido_obj.equipo_local == estado.get('config', {}).get('equipo_principal') else partido_obj.equipo_local}"
-                # Incrementar goles visita
-                eq_princ = estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
-                if partido_obj.equipo_local == eq_princ:
+            if jug_sel in ["⚡ Equipo Rival", "⚡ Gol Rival"]:
+                rival_del_partido = (
+                    partido_obj.equipo_visita
+                    if partido_obj.equipo_local == mi_equipo
+                    else partido_obj.equipo_local
+                )
+                desc_ev = f"Gol de {rival_del_partido}"
+                eq_ev = rival_del_partido
+                if rival_del_partido == partido_obj.equipo_visita:
                     goles_visita_val[0] = int(tf_goles_visita.value or 0) + 1
                     tf_goles_visita.value = str(goles_visita_val[0])
                 else:
                     goles_local_val[0] = int(tf_goles_local.value or 0) + 1
                     tf_goles_local.value = str(goles_local_val[0])
             else:
-                desc_ev = f"Gol de {jug_sel}"
-                eq_princ = estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
-                if partido_obj.equipo_local == eq_princ:
+                eq_ev = mi_equipo if not es_superadmin else (
+                    partido_obj.equipo_local if partido_obj.equipo_local in jug_sel else partido_obj.equipo_visita
+                )
+                desc_ev = f"Gol de {jug_sel} ({eq_ev})"
+                if eq_ev == partido_obj.equipo_local:
                     goles_local_val[0] = int(tf_goles_local.value or 0) + 1
                     tf_goles_local.value = str(goles_local_val[0])
                 else:
@@ -382,6 +426,7 @@ def mostrar_dialogo_mantenedor_eventos(
                 "minuto": min_txt,
                 "evento": "Gol",
                 "jugador": desc_ev,
+                "equipo": eq_ev,
             })
         elif tipo_ev == "Cambio":
             suplente = dd_suplente_entra.value
@@ -390,17 +435,21 @@ def mostrar_dialogo_mantenedor_eventos(
                 texto_feedback.color = COLOR_ROJO
                 page.update()
                 return
+            eq_ev = mi_equipo if not es_superadmin else partido_obj.equipo_local
             desc_ev = f"Sale {jug_sel} ➔ Entra {suplente}"
             eventos_locales.append({
                 "minuto": min_txt,
                 "evento": "Cambio",
                 "jugador": desc_ev,
+                "equipo": eq_ev,
             })
         else:
+            eq_ev = mi_equipo if not es_superadmin else partido_obj.equipo_local
             eventos_locales.append({
                 "minuto": min_txt,
                 "evento": tipo_ev,
-                "jugador": jug_sel,
+                "jugador": f"{jug_sel} ({eq_ev})",
+                "equipo": eq_ev,
             })
 
         tf_minuto.value = ""

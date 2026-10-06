@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from backend.models.jugador import Jugador
 from backend.database.repositories import JugadorRepository
 from config.constants import ORDEN_PUESTOS
@@ -6,8 +6,8 @@ from config.constants import ORDEN_PUESTOS
 
 class JugadorService:
     @staticmethod
-    def obtener_todos_ordenados() -> List[dict]:
-        jugadores = JugadorRepository.obtener_todos()
+    def obtener_todos_ordenados(equipo: Optional[str] = None, fecha: Optional[str] = None) -> List[dict]:
+        jugadores = JugadorRepository.obtener_todos(equipo=equipo, fecha=fecha)
         
         def clave_orden_puesto(j: Jugador):
             puesto = j.puesto.strip()
@@ -26,19 +26,37 @@ class JugadorService:
         return [j.to_dict() for j in jugadores_ordenados]
 
     @staticmethod
-    def agregar(numero: str, nombre: str, puesto: str, es_invitado: bool = False) -> bool:
+    def agregar(
+        numero: str,
+        nombre: str,
+        puesto: str,
+        equipo: str = "Real Dunalastair",
+        fecha: str = "",
+        es_invitado: bool = False,
+    ) -> bool:
         if es_invitado:
             return False
-        return JugadorRepository.agregar(numero, nombre, puesto)
+        return JugadorRepository.agregar(numero=numero, nombre=nombre, puesto=puesto, equipo=equipo, fecha=fecha)
 
     @staticmethod
-    def eliminar(nombre: str, es_invitado: bool = False) -> bool:
+    def eliminar(
+        nombre: str,
+        equipo: Optional[str] = None,
+        fecha: Optional[str] = None,
+        es_invitado: bool = False,
+    ) -> bool:
         if es_invitado:
             return False
-        return JugadorRepository.eliminar(nombre)
+        return JugadorRepository.eliminar(nombre=nombre, equipo=equipo, fecha=fecha)
 
     @staticmethod
-    def importar_plantel(jugadores: List[dict], reemplazar: bool = False, es_invitado: bool = False) -> tuple:
+    def importar_plantel(
+        jugadores: List[dict],
+        equipo: str = "Real Dunalastair",
+        fecha: str = "",
+        reemplazar: bool = False,
+        es_invitado: bool = False,
+    ) -> tuple:
         if es_invitado or not jugadores:
             return (0, 0)
-        return JugadorRepository.importar_masivo(jugadores, reemplazar=reemplazar)
+        return JugadorRepository.importar_masivo(jugadores, equipo=equipo, fecha=fecha, reemplazar=reemplazar)

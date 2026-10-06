@@ -29,7 +29,10 @@ def mostrar_dialogo_carga_plantel(page: ft.Page, estado: dict, callbacks: dict):
         )
         return
 
-    jugadores_db = JugadorService.obtener_todos_ordenados()
+    equipo_activo = estado.get("equipo_activo") or estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
+    fecha_activa = estado.get("fecha_filtro", "")
+
+    jugadores_db = JugadorService.obtener_todos_ordenados(equipo=equipo_activo, fecha=fecha_activa)
     jugadores_actuales = {j["nombre"].lower(): j for j in jugadores_db}
     
     # Si ya existe un plantel cargado en la BD, precargar por defecto
@@ -344,6 +347,8 @@ def mostrar_dialogo_carga_plantel(page: ft.Page, estado: dict, callbacks: dict):
         reemplazar = bool(cb_reemplazar.value)
         insertados, actualizados = JugadorService.importar_plantel(
             jugadores_detectados,
+            equipo=equipo_activo,
+            fecha=fecha_activa,
             reemplazar=reemplazar,
             es_invitado=estado.get("es_invitado", False),
         )
@@ -352,9 +357,9 @@ def mostrar_dialogo_carga_plantel(page: ft.Page, estado: dict, callbacks: dict):
         callbacks["refrescar_vistas"]()
         page.update()
 
-        msg = f"✅ Carga masiva exitosa: {insertados} agregados, {actualizados} actualizados."
+        msg = f"✅ Carga masiva exitosa ({equipo_activo}): {insertados} agregados, {actualizados} actualizados."
         if reemplazar:
-            msg = f"✅ Plantel reemplazado con éxito ({insertados} jugadores)."
+            msg = f"✅ Plantel de {equipo_activo} reemplazado con éxito ({insertados} jugadores)."
 
         page.open(
             ft.SnackBar(
@@ -372,7 +377,7 @@ def mostrar_dialogo_carga_plantel(page: ft.Page, estado: dict, callbacks: dict):
     dialogo_carga = ft.AlertDialog(
         title=ft.Row([
             ft.Icon(ft.Icons.FLASH_ON, color=COLOR_CELESTE, size=24),
-            ft.Text("Carga Rápida de Plantel", weight=ft.FontWeight.BOLD, color=COLOR_TEXTO, size=16),
+            ft.Text(f"Carga Rápida de Plantel ({equipo_activo})", weight=ft.FontWeight.BOLD, color=COLOR_TEXTO, size=16),
         ], spacing=8),
         content=ft.Container(
             content=ft.Column([

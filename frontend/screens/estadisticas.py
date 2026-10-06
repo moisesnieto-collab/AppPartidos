@@ -15,12 +15,13 @@ class EstadisticasScreen:
 
     def build(self):
         actualizar_minutos_jugadores(self.estado)
-        jugadores = JugadorService.obtener_todos_ordenados()
+        equipo_activo = self.estado.get("equipo_activo") or self.estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
         fecha_filtro = (
             self.estado.get("fecha_filtro")
             or self.estado.get("config", {}).get("fecha")
             or datetime.now().strftime("%Y-%m-%d")
         )
+        jugadores = JugadorService.obtener_todos_ordenados(equipo=equipo_activo, fecha=fecha_filtro)
         minutos_acumulados_bd = PartidoService.obtener_minutos_totales(
             partido_activo_id=self.estado.get("partido_activo_id"),
             minutos_actuales=self.estado.get("minutos_partido_actual", {}),
@@ -37,18 +38,56 @@ class EstadisticasScreen:
                     segs = minutos_acumulados_bd.get(nom, 0)
                     datos_jugadores.append({
                         "Fecha": fecha_filtro,
+                        "Equipo": equipo_activo,
                         "Número": j["numero"],
                         "Jugador": nom,
                         "Puesto": j["puesto"],
                         "Minutos Acumulados Día": segs // 60,
                     })
                 df = pd.DataFrame(datos_jugadores)
-                nombre_archivo = f"Reporte_Minutos_{fecha_filtro}.xlsx"
+                nombre_archivo = f"Reporte_Minutos_{equipo_activo.replace(' ', '_')}_{fecha_filtro}.xlsx"
                 df.to_excel(nombre_archivo, index=False)
-                texto_export.value = f"✅ '{nombre_archivo}' guardado."
+                texto_export.value = f"✅ '{nombre_archivo}' guardado con éxito."
             except Exception as ex:
                 texto_export.value = f"❌ Error exportando: {ex}"
             self.page.update()
+
+        selector_equipo_superadmin = None
+        if self.estado.get("es_superadmin", False):
+            equipos_dia = set()
+            for g in self.estado.get("grupos_dia", []):
+                grupo_obj = g.get("grupo", {})
+                if grupo_obj.get("equipo_principal"):
+                    equipos_dia.add(grupo_obj["equipo_principal"])
+                for eq in grupo_obj.get("equipos", []):
+                    if eq:
+                        equipos_dia.add(eq)
+            if not equipos_dia:
+                equipos_dia.add("Real Dunalastair")
+
+            def on_cambiar_equipo_stats(e):
+                self.estado["equipo_activo"] = e.control.value
+                self.callbacks["refrescar_vistas"]()
+                self.page.update()
+
+            selector_equipo_superadmin = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.SWAP_HORIZ, size=16, color=COLOR_CELESTE),
+                    ft.Text("Ver Estadísticas del Club:", size=12, color=COLOR_SUBTEXTO, weight=ft.FontWeight.BOLD),
+                    ft.Dropdown(
+                        value=equipo_activo if equipo_activo in equipos_dia else sorted(equipos_dia)[0],
+                        options=[ft.dropdown.Option(eq) for eq in sorted(equipos_dia)],
+                        width=180,
+                        text_size=12,
+                        content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                        border_color=COLOR_CELESTE,
+                        focused_border_color=COLOR_VERDE,
+                        border_radius=8,
+                        on_change=on_cambiar_equipo_stats,
+                    ),
+                ], spacing=8, alignment=ft.MainAxisAlignment.START),
+                padding=ft.padding.only(bottom=4),
+            )
 
         jugadores_ordenados = sorted(
             jugadores,
@@ -103,29 +142,37 @@ class EstadisticasScreen:
             )
             stats_ui.append(tarjeta)
 
+        elementos_stats = [
+            ft.Text(
+                f"📊 Ranking de Minutos: {equipo_activo} ({fecha_filtro})",
+                size=18,
+                weight=ft.FontWeight.BOLD,
+                color=COLOR_TEXTO,
+            ),
+        ]
+
+        if selector_equipo_superadmin:
+            elementos_stats.append(selector_equipo_superadmin)
+
+        elementos_stats.extend([
+            ft.ElevatedButton(
+                "Exportar a Excel",
+                icon=ft.Icons.EXPLICIT,
+                bgcolor=COLOR_CELESTE_BOTON,
+                color=COLOR_TEXTO,
+                on_click=click_exportar,
+            ),
+            texto_export,
+            ft.Divider(height=10, color=COLOR_BORDE),
+            ft.Column(
+                controls=stats_ui,
+                scroll=ft.ScrollMode.AUTO,
+                expand=True,
+                spacing=8,
+            ),
+        ])
+
         return ft.Column(
-            [
-                ft.Text(
-                    f"📊 Ranking de Minutos por Día ({fecha_filtro})",
-                    size=18,
-                    weight=ft.FontWeight.BOLD,
-                    color=COLOR_TEXTO,
-                ),
-                ft.ElevatedButton(
-                    "Exportar a Excel",
-                    icon=ft.Icons.EXPLICIT,
-                    bgcolor=COLOR_CELESTE_BOTON,
-                    color=COLOR_TEXTO,
-                    on_click=click_exportar,
-                ),
-                texto_export,
-                ft.Divider(height=10, color=COLOR_BORDE),
-                ft.Column(
-                    controls=stats_ui,
-                    scroll=ft.ScrollMode.AUTO,
-                    expand=True,
-                    spacing=8,
-                ),
-            ],
+            elementos_stats,
             expand=True,
         )

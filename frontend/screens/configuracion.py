@@ -7,7 +7,9 @@ from config.constants import (
 )
 from backend.services.grupo_service import GrupoService
 from backend.services.partido_service import PartidoService
+from backend.database.repositories import PartidoRepository
 from frontend.screens.mantenedor_eventos import mostrar_dialogo_mantenedor_eventos
+from frontend.screens.admin_usuarios import mostrar_dialogo_admin_usuarios
 
 
 class ConfiguracionScreen:
@@ -209,6 +211,10 @@ class ConfiguracionScreen:
                     lbl_error_modal.value = "⚠️ Debes ingresar exactamente los 4 equipos del cuadrangular."
                     self.page.update()
                     return
+                if len(set(eq.lower() for eq in eqs)) != len(eqs):
+                    lbl_error_modal.value = "⚠️ Los 4 equipos deben ser distintos (no duplicados)."
+                    self.page.update()
+                    return
 
                 fecha_actual = self.estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d"))
                 nuevo_id = GrupoService.crear_grupo_adicional(nom, fecha_actual, eqs, self.estado["es_invitado"])
@@ -253,12 +259,11 @@ class ConfiguracionScreen:
                 g_obj = g_item["grupo"]
                 g_id = g_obj["id"]
                 es_activo = (self.vista_activa == "grupo" and grupo_sel_data and grupo_sel_data["grupo"]["id"] == g_id)
-                es_princ = g_obj.get("es_principal", False)
-                icono_chip = ft.Icons.STAR if es_princ else ft.Icons.SPORTS_SOCCER
+                icono_chip = ft.Icons.SPORTS_SOCCER
 
                 chips_grupos.append(
                     ft.ElevatedButton(
-                        text=f"{g_obj['nombre']}" + (" (Principal)" if es_princ else ""),
+                        text=f"{g_obj['nombre']}",
                         icon=icono_chip,
                         bgcolor=COLOR_CELESTE_BOTON if es_activo else COLOR_TARJETA,
                         color=COLOR_TEXTO if es_activo else COLOR_SUBTEXTO,
@@ -562,11 +567,22 @@ class ConfiguracionScreen:
             tabla_actual = grupo_sel_data.get("tabla", [])
             es_grupo_principal = grupo_actual.get("es_principal", False)
 
+            # Equipo contextual (el que administra o sigue el usuario)
+            mi_equipo = (
+                self.estado.get("equipo_seguido_invitado", "Real Dunalastair")
+                if self.estado["es_invitado"]
+                else (self.estado.get("equipo_activo") or "Real Dunalastair")
+            )
+            pertenece_a_grupo = (
+                mi_equipo.lower() == grupo_actual.get("equipo_principal", "").lower()
+                or mi_equipo.lower() in [eq.lower() for eq in grupo_actual.get("equipos", [])]
+            )
+
             # Construir tabla de posiciones
             filas_tabla = []
             for pos, st in enumerate(tabla_actual, start=1):
                 nombre_eq = st["equipo"]
-                es_mi_equipo = es_grupo_principal and (nombre_eq.lower() == grupo_actual["equipo_principal"].lower())
+                es_mi_equipo = (nombre_eq.lower() == mi_equipo.lower())
                 color_nombre = COLOR_CELESTE if es_mi_equipo else COLOR_TEXTO
                 peso_nombre = ft.FontWeight.BOLD if es_mi_equipo else ft.FontWeight.NORMAL
 
@@ -645,7 +661,7 @@ class ConfiguracionScreen:
                 content=ft.Column([
                     ft.Row([
                         ft.Row([
-                            ft.Text(f"🏆 Tabla: {grupo_actual['nombre']}", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE, size=15),
+                            ft.Text(f"🏆 Tabla: {grupo_actual['nombre']}", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE if pertenece_a_grupo else COLOR_TEXTO, size=15),
                             btn_eliminar_g_sec,
                         ], spacing=6),
                         ft.Text(f"📅 {grupo_actual['fecha']}", color=COLOR_SUBTEXTO, size=12),
@@ -655,7 +671,7 @@ class ConfiguracionScreen:
                 padding=12,
                 bgcolor=COLOR_TARJETA,
                 border_radius=12,
-                border=ft.border.all(1, COLOR_CELESTE if es_grupo_principal else COLOR_BORDE),
+                border=ft.border.all(1, COLOR_CELESTE if pertenece_a_grupo else COLOR_BORDE),
             )
 
             # Partidos del grupo seleccionado
@@ -673,10 +689,12 @@ class ConfiguracionScreen:
                         self.page.update(),
                     )
 
-                if es_grupo_principal and p.get("es_principal", False):
+                es_partido_mi_equipo = (p["equipo_local"] == mi_equipo or p["equipo_visita"] == mi_equipo)
+
+                if es_partido_mi_equipo:
                     rival_nombre = (
                         p["equipo_visita"]
-                        if p["equipo_local"] == self.estado["config"]["equipo_principal"]
+                        if p["equipo_local"] == mi_equipo
                         else p["equipo_local"]
                     )
 
@@ -807,26 +825,51 @@ class ConfiguracionScreen:
 
             elementos_columna.append(componente_tabla)
 
-            if es_grupo_principal:
+            if partidos_mi_equipo_ui:
                 elementos_columna.extend([
                     ft.Row([
-                        ft.Text(f"Partidos de {self.estado['config']['equipo_principal']}", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
-                        ft.ElevatedButton(
-                            "🛠️ Mantenedor de Eventos",
-                            icon=ft.Icons.EDIT_NOTE,
-                            bgcolor=COLOR_TARJETA,
-                            color=COLOR_CELESTE,
-                            visible=not self.estado["es_invitado"],
-                            on_click=lambda e: mostrar_dialogo_mantenedor_eventos(self.page, self.estado, self.callbacks),
-                        ),
+                        ft.Text(f"Partidos de {mi_equipo}", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                        ft.Row([
+                            ft.ElevatedButton(
+                                "👥 Delegados",
+                                icon=ft.Icons.MANAGE_ACCOUNTS,
+                                bgcolor=COLOR_TARJETA,
+                                color=COLOR_VERDE,
+                                visible=bool(self.estado.get("es_superadmin", False)),
+                                on_click=lambda e: mostrar_dialogo_admin_usuarios(self.page, self.estado, self.callbacks),
+                                tooltip="Gestionar Administradores de Equipo (SuperAdmin)",
+                            ),
+                            ft.ElevatedButton(
+                                "🛠️ Mantenedor de Eventos",
+                                icon=ft.Icons.EDIT_NOTE,
+                                bgcolor=COLOR_TARJETA,
+                                color=COLOR_CELESTE,
+                                visible=not self.estado["es_invitado"],
+                                on_click=lambda e: mostrar_dialogo_mantenedor_eventos(self.page, self.estado, self.callbacks),
+                            ),
+                        ], spacing=6),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Column(controls=partidos_mi_equipo_ui or [ft.Text("Sin partidos asignados", color=COLOR_SUBTEXTO)], spacing=8),
-                    ft.Text("Marcadores entre Rivales del Grupo (Combinatoria)", weight=ft.FontWeight.BOLD, color=COLOR_AMBAR),
-                    ft.Column(controls=partidos_rivales_ui or [ft.Text("Sin partidos de rivales", color=COLOR_SUBTEXTO)], spacing=6),
+                    ft.Column(controls=partidos_mi_equipo_ui, spacing=8),
                 ])
+                if partidos_rivales_ui:
+                    elementos_columna.extend([
+                        ft.Text("Marcadores entre Rivales del Grupo (Combinatoria)", weight=ft.FontWeight.BOLD, color=COLOR_AMBAR),
+                        ft.Column(controls=partidos_rivales_ui, spacing=6),
+                    ])
             else:
                 elementos_columna.extend([
-                    ft.Text(f"Partidos del {grupo_actual['nombre']} (6 Partidos)", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                    ft.Row([
+                        ft.Text(f"Partidos del {grupo_actual['nombre']} ({len(partidos_actuales)} Partidos)", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                        ft.ElevatedButton(
+                            "👥 Delegados",
+                            icon=ft.Icons.MANAGE_ACCOUNTS,
+                            bgcolor=COLOR_TARJETA,
+                            color=COLOR_VERDE,
+                            visible=bool(self.estado.get("es_superadmin", False)),
+                            on_click=lambda e: mostrar_dialogo_admin_usuarios(self.page, self.estado, self.callbacks),
+                            tooltip="Gestionar Administradores de Equipo (SuperAdmin)",
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Column(controls=partidos_rivales_ui or [ft.Text("Sin partidos asignados", color=COLOR_SUBTEXTO)], spacing=6),
                 ])
 
@@ -850,7 +893,7 @@ class ConfiguracionScreen:
             )
             tf_equipo_principal = ft.TextField(
                 label="Mi Equipo Principal",
-                value="Real Dunalastair",
+                value=self.estado.get("equipo_activo") or "Real Dunalastair",
                 expand=True,
                 border_color=COLOR_BORDE,
                 focused_border_color=COLOR_CELESTE,
@@ -880,9 +923,15 @@ class ConfiguracionScreen:
                     self.page.update()
                     return
 
-                lista_rivales = [r.strip() for r in rivales_str.split(",") if r.strip()]
+                # Filtrar rivales para evitar duplicar el equipo principal o entre ellos
+                lista_rivales_raw = [r.strip() for r in rivales_str.split(",") if r.strip()]
+                lista_rivales = []
+                for r in lista_rivales_raw:
+                    if r.lower() != eq_princ.lower() and r not in lista_rivales:
+                        lista_rivales.append(r)
+
                 if not lista_rivales:
-                    texto_feedback_grupo.value = "⚠️ Ingresa al menos un equipo rival."
+                    texto_feedback_grupo.value = "⚠️ Ingresa al menos un equipo rival distinto al equipo principal."
                     texto_feedback_grupo.color = COLOR_ROJO
                     self.page.update()
                     return

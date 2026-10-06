@@ -143,9 +143,19 @@ class GrupoService:
         if es_invitado:
             return None
         
-        grupo_id = GrupoRepository.crear(nombre_grupo, fecha, equipo_principal, lista_equipos, es_principal=True)
+        # Limpiar y deduplicar lista de equipos preservando orden
+        equipos_limpios = []
+        for eq in [equipo_principal] + lista_equipos:
+            e = str(eq).strip()
+            if e and e not in equipos_limpios:
+                equipos_limpios.append(e)
+
+        if len(equipos_limpios) < 2:
+            return None
+
+        grupo_id = GrupoRepository.crear(nombre_grupo, fecha, equipo_principal, equipos_limpios, es_principal=True)
         
-        parejas = list(itertools.combinations(lista_equipos, 2))
+        parejas = list(itertools.combinations(equipos_limpios, 2))
         for loc, vis in parejas:
             es_principal = loc == equipo_principal or vis == equipo_principal
             rival_calculado = vis if loc == equipo_principal else loc
@@ -175,17 +185,26 @@ class GrupoService:
         if es_invitado:
             return None
 
-        # Para grupos secundarios no hay equipo principal local
-        eq_primero = lista_equipos[0] if lista_equipos else ""
+        # Limpiar y deduplicar lista de equipos
+        equipos_limpios = []
+        for eq in lista_equipos:
+            e = str(eq).strip()
+            if e and e not in equipos_limpios:
+                equipos_limpios.append(e)
+
+        if len(equipos_limpios) < 2:
+            return None
+
+        eq_primero = equipos_limpios[0]
         grupo_id = GrupoRepository.crear(
             nombre=nombre_grupo,
             fecha=fecha,
             equipo_principal=eq_primero,
-            equipos=lista_equipos,
+            equipos=equipos_limpios,
             es_principal=False,
         )
 
-        parejas = list(itertools.combinations(lista_equipos, 2))
+        parejas = list(itertools.combinations(equipos_limpios, 2))
         for loc, vis in parejas:
             PartidoRepository.crear(
                 grupo_id=grupo_id,

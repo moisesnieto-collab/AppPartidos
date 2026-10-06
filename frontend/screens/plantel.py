@@ -17,7 +17,12 @@ class PlantelScreen:
 
     def build(self):
         actualizar_minutos_jugadores(self.estado)
-        jugadores = JugadorService.obtener_todos_ordenados()
+        equipo_activo = self.estado.get("equipo_activo") or self.estado.get("config", {}).get("equipo_principal", "Real Dunalastair")
+        fecha_filtro = (
+            self.estado.get("fecha_filtro")
+            or self.estado.get("config", {}).get("fecha", "")
+        )
+        jugadores = JugadorService.obtener_todos_ordenados(equipo=equipo_activo, fecha=fecha_filtro)
         max_titulares = self.estado["config"]["jugadores_en_cancha"]
         es_bloqueado = self.estado["finalizado"] or self.estado["es_invitado"]
 
@@ -40,13 +45,15 @@ class PlantelScreen:
                 return
             if tf_nuevo_nom.value and tf_nuevo_num.value:
                 res = JugadorService.agregar(
-                    tf_nuevo_num.value.strip(),
-                    tf_nuevo_nom.value.strip(),
-                    tf_nuevo_puesto.value.strip() or "Jugador",
-                    self.estado["es_invitado"]
+                    numero=tf_nuevo_num.value.strip(),
+                    nombre=tf_nuevo_nom.value.strip(),
+                    puesto=tf_nuevo_puesto.value.strip() or "Jugador",
+                    equipo=equipo_activo,
+                    fecha=fecha_filtro,
+                    es_invitado=self.estado["es_invitado"],
                 )
                 if res:
-                    texto_status_jugador.value = "✅ Agregado a la BD."
+                    texto_status_jugador.value = f"✅ Agregado a {equipo_activo}."
                     texto_status_jugador.color = COLOR_VERDE
                     self.callbacks["refrescar_vistas"]()
                 else:
@@ -57,10 +64,6 @@ class PlantelScreen:
         def pedir_confirmacion_borrado(nom_jugador):
             if self.estado["es_invitado"]:
                 return
-            fecha_filtro = (
-                self.estado.get("fecha_filtro")
-                or self.estado.get("config", {}).get("fecha")
-            )
             minutos_totales = PartidoService.obtener_minutos_totales(
                 partido_activo_id=self.estado.get("partido_activo_id"),
                 minutos_actuales=self.estado.get("minutos_partido_actual", {}),
@@ -72,12 +75,17 @@ class PlantelScreen:
                 self.page.close(dlg_confirm)
 
             def procesar_borrado(ev):
-                JugadorService.eliminar(nom_jugador, self.estado["es_invitado"])
+                JugadorService.eliminar(
+                    nombre=nom_jugador,
+                    equipo=equipo_activo,
+                    fecha=fecha_filtro,
+                    es_invitado=self.estado["es_invitado"],
+                )
                 self.page.close(dlg_confirm)
                 self.callbacks["refrescar_vistas"]()
                 self.page.update()
 
-            mensaje = f"¿Deseas borrar permanentemente a {nom_jugador}?"
+            mensaje = f"¿Deseas borrar a {nom_jugador} del plantel de {equipo_activo}?"
             if mins > 0:
                 mensaje += f"\n\n⚠️ ADVERTENCIA: Este jugador registra {mins} min jugados en el historial."
 
@@ -93,10 +101,6 @@ class PlantelScreen:
             self.page.open(dlg_confirm)
 
         titulares_ui, suplentes_ui = [], []
-        fecha_filtro = (
-            self.estado.get("fecha_filtro")
-            or self.estado.get("config", {}).get("fecha")
-        )
         minutos_dia = PartidoService.obtener_minutos_totales(
             partido_activo_id=self.estado.get("partido_activo_id"),
             minutos_actuales=self.estado.get("minutos_partido_actual", {}),
@@ -174,7 +178,7 @@ class PlantelScreen:
                 suplentes_ui.append(fila)
 
         header_plantel = ft.Row([
-            ft.Text("📋 Plantel de Jugadores", size=20, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
+            ft.Text(f"📋 Plantel de {equipo_activo}", size=18, weight=ft.FontWeight.BOLD, color=COLOR_TEXTO),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
         if not self.estado["es_invitado"]:
@@ -185,12 +189,55 @@ class PlantelScreen:
                     bgcolor=COLOR_CELESTE_BOTON,
                     color=COLOR_TEXTO,
                     on_click=lambda e: mostrar_dialogo_carga_plantel(self.page, self.estado, self.callbacks),
-                    tooltip="Importar lista desde WhatsApp o archivo Excel/CSV"
+                    tooltip=f"Importar lista de {equipo_activo} desde WhatsApp o archivo Excel/CSV"
                 )
+            )
+
+        selector_equipo_superadmin = None
+        if self.estado.get("es_superadmin", False):
+            equipos_dia = set()
+            for g in self.estado.get("grupos_dia", []):
+                grupo_obj = g.get("grupo", {})
+                if grupo_obj.get("equipo_principal"):
+                    equipos_dia.add(grupo_obj["equipo_principal"])
+                for eq in grupo_obj.get("equipos", []):
+                    if eq:
+                        equipos_dia.add(eq)
+            if not equipos_dia:
+                equipos_dia.add("Real Dunalastair")
+
+            def on_cambiar_equipo_admin(e):
+                self.estado["equipo_activo"] = e.control.value
+                self.callbacks["refrescar_vistas"]()
+                self.page.update()
+
+            selector_equipo_superadmin = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.SWAP_HORIZ, size=16, color=COLOR_CELESTE),
+                    ft.Text("Administrar Plantel del Club:", size=12, color=COLOR_SUBTEXTO, weight=ft.FontWeight.BOLD),
+                    ft.Dropdown(
+                        value=equipo_activo if equipo_activo in equipos_dia else sorted(equipos_dia)[0],
+                        options=[ft.dropdown.Option(eq) for eq in sorted(equipos_dia)],
+                        width=180,
+                        text_size=12,
+                        content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                        border_color=COLOR_CELESTE,
+                        focused_border_color=COLOR_VERDE,
+                        border_radius=8,
+                        on_change=on_cambiar_equipo_admin,
+                    ),
+                ], spacing=8, alignment=ft.MainAxisAlignment.START),
+                padding=ft.padding.only(bottom=4),
             )
 
         elementos_plantel = [
             header_plantel,
+        ]
+
+        if selector_equipo_superadmin:
+            elementos_plantel.append(selector_equipo_superadmin)
+
+        elementos_plantel.append(
             ft.Container(
                 content=ft.Row([
                     ft.Text("Titulares en cancha:", color=COLOR_TEXTO, weight=ft.FontWeight.W_500),
@@ -205,8 +252,8 @@ class PlantelScreen:
                     ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=12, bgcolor=COLOR_TARJETA, border_radius=12, border=ft.border.all(1, COLOR_BORDE),
-            ),
-        ]
+            )
+        )
 
         if not self.estado["es_invitado"]:
             elementos_plantel.append(
