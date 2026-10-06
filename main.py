@@ -47,6 +47,10 @@ def main(page: ft.Page):
         "goles_rival": 0,
         "partidos_grupo": [],
         "grupo_activo": None,
+        "grupos_dia": [],
+        "grupo_seleccionado_id": None,
+        "config_torneo": {"partido_definicion": False},
+        "partido_definicion": None,
         "partido_activo_id": None,
         "minutos_partido_actual": {},
         "titulares_seleccionados": [],
@@ -65,15 +69,28 @@ def main(page: ft.Page):
 
     # Callbacks compartidos
     def cargar_grupo():
-        datos_grupo = GrupoService.cargar_grupo_por_fecha(estado["fecha_filtro"])
-        if datos_grupo:
-            estado["grupo_activo"] = datos_grupo["grupo"]
-            estado["partidos_grupo"] = datos_grupo["partidos"]
+        datos_dia = GrupoService.cargar_grupos_por_fecha(estado["fecha_filtro"])
+        grupos = datos_dia.get("grupos", [])
+        estado["grupos_dia"] = grupos
+        estado["config_torneo"] = datos_dia.get("config_torneo", {"partido_definicion": False})
+        estado["partido_definicion"] = datos_dia.get("partido_definicion")
+
+        if grupos:
+            grupo_principal_data = next((g for g in grupos if g["grupo"].get("es_principal")), grupos[0])
             
-            # Activar partido principal si no hay uno activo
-            if estado["partido_activo_id"] is None:
-                partidos_principales = [p for p in estado["partidos_grupo"] if p["es_principal"]]
-                if partidos_principales:
+            sel_id = estado.get("grupo_seleccionado_id")
+            grupo_sel_data = next((g for g in grupos if g["grupo"]["id"] == sel_id), None)
+            if not grupo_sel_data:
+                grupo_sel_data = grupo_principal_data
+                estado["grupo_seleccionado_id"] = grupo_sel_data["grupo"]["id"]
+
+            estado["grupo_activo"] = grupo_sel_data["grupo"]
+            estado["partidos_grupo"] = grupo_sel_data["partidos"]
+
+            # Si el partido activo no está en el grupo principal o no existe, asociar partido principal
+            partidos_principales = [p for p in grupo_principal_data["partidos"] if p["es_principal"]]
+            if partidos_principales:
+                if estado["partido_activo_id"] is None or not any(p["id"] == estado["partido_activo_id"] for p in partidos_principales):
                     if estado["es_invitado"]:
                         en_curso = next((p for p in partidos_principales if p["hora_inicio"] is not None or (
                             p["segundos"] > 0 and not p["finalizado"])), None)
@@ -81,6 +98,8 @@ def main(page: ft.Page):
                     else:
                         activar_partido_memoria(partidos_principales[0])
         else:
+            estado["grupos_dia"] = []
+            estado["grupo_seleccionado_id"] = None
             estado["grupo_activo"] = None
             estado["partidos_grupo"] = []
             estado["partido_activo_id"] = None

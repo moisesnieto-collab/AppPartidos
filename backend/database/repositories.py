@@ -107,12 +107,26 @@ class JugadorRepository:
 
 class GrupoRepository:
     @staticmethod
+    def obtener_todos_por_fecha(fecha: str) -> List[Grupo]:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, nombre, fecha, equipo_principal, equipos_json, es_principal FROM grupos WHERE fecha = ? ORDER BY es_principal DESC, id ASC",
+                (fecha,)
+            )
+            rows = cursor.fetchall()
+            return [Grupo.from_tuple(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
     def obtener_por_fecha(fecha: str) -> Optional[Grupo]:
         conn = conectar_bd()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, nombre, fecha, equipo_principal, equipos_json FROM grupos WHERE fecha = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, nombre, fecha, equipo_principal, equipos_json, es_principal FROM grupos WHERE fecha = ? ORDER BY es_principal DESC, id ASC LIMIT 1",
                 (fecha,)
             )
             row = cursor.fetchone()
@@ -123,17 +137,45 @@ class GrupoRepository:
             conn.close()
 
     @staticmethod
-    def crear(nombre: str, fecha: str, equipo_principal: str, equipos: List[str]) -> int:
+    def obtener_por_id(grupo_id: int) -> Optional[Grupo]:
         conn = conectar_bd()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO grupos (nombre, fecha, equipo_principal, equipos_json) VALUES (?, ?, ?, ?)",
-                (nombre, fecha, equipo_principal, json.dumps(equipos, ensure_ascii=False)),
+                "SELECT id, nombre, fecha, equipo_principal, equipos_json, es_principal FROM grupos WHERE id = ?",
+                (grupo_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return Grupo.from_tuple(row)
+            return None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def crear(nombre: str, fecha: str, equipo_principal: str, equipos: List[str], es_principal: bool = True) -> int:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO grupos (nombre, fecha, equipo_principal, equipos_json, es_principal) VALUES (?, ?, ?, ?, ?)",
+                (nombre, fecha, equipo_principal, json.dumps(equipos, ensure_ascii=False), 1 if es_principal else 0),
             )
             grupo_id = cursor.lastrowid
             conn.commit()
             return grupo_id
+        finally:
+            conn.close()
+
+    @staticmethod
+    def eliminar_por_id(grupo_id: int) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM partidos WHERE grupo_id = ?", (grupo_id,))
+            cursor.execute("DELETE FROM grupos WHERE id = ?", (grupo_id,))
+            conn.commit()
+            return True
         finally:
             conn.close()
 
@@ -143,6 +185,71 @@ class GrupoRepository:
         try:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM grupos WHERE fecha = ?", (fecha,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
+class TorneoConfigRepository:
+    @staticmethod
+    def obtener_por_fecha(fecha: str) -> dict:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT fecha, partido_definicion FROM torneo_config WHERE fecha = ?",
+                (fecha,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "fecha": row[0],
+                    "partido_definicion": bool(row[1]),
+                }
+            return {
+                "fecha": fecha,
+                "partido_definicion": False,
+            }
+        finally:
+            conn.close()
+
+    @staticmethod
+    def guardar_opcion_definicion(fecha: str, partido_definicion: bool) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO torneo_config (fecha, partido_definicion)
+                VALUES (?, ?)
+                ON CONFLICT(fecha) DO UPDATE SET partido_definicion=excluded.partido_definicion
+                """,
+                (fecha, 1 if partido_definicion else 0),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            # Fallback for older SQLite versions without ON CONFLICT DO UPDATE
+            try:
+                cursor.execute("DELETE FROM torneo_config WHERE fecha = ?", (fecha,))
+                cursor.execute(
+                    "INSERT INTO torneo_config (fecha, partido_definicion) VALUES (?, ?)",
+                    (fecha, 1 if partido_definicion else 0),
+                )
+                conn.commit()
+                return True
+            except Exception:
+                return False
+        finally:
+            conn.close()
+
+    @staticmethod
+    def eliminar_por_fecha(fecha: str) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM torneo_config WHERE fecha = ?", (fecha,))
             conn.commit()
             return True
         finally:
@@ -160,7 +267,7 @@ class PartidoRepository:
                 SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
                        tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
                        goles_local, goles_visita, segundos, segundos_acumulados,
-                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado, es_definicion
                 FROM partidos WHERE id=?
                 """,
                 (partido_id,),
@@ -180,13 +287,91 @@ class PartidoRepository:
                 SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
                        tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
                        goles_local, goles_visita, segundos, segundos_acumulados,
-                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado, es_definicion
                 FROM partidos WHERE grupo_id=? ORDER BY id ASC
                 """,
                 (grupo_id,),
             )
             rows = cursor.fetchall()
             return [Partido.from_tuple(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def obtener_por_fecha(fecha: str) -> List[Partido]:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
+                       tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
+                       goles_local, goles_visita, segundos, segundos_acumulados,
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado, es_definicion
+                FROM partidos WHERE fecha=? ORDER BY id ASC
+                """,
+                (fecha,),
+            )
+            rows = cursor.fetchall()
+            return [Partido.from_tuple(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def obtener_partido_definicion(fecha: str) -> Optional[Partido]:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, grupo_id, fecha, equipo_local, equipo_visita, es_principal,
+                       tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha,
+                       goles_local, goles_visita, segundos, segundos_acumulados,
+                       hora_inicio, titulares, eventos, minutos_partido, finalizado, jugado, es_definicion
+                FROM partidos WHERE fecha=? AND es_definicion=1 ORDER BY id DESC LIMIT 1
+                """,
+                (fecha,),
+            )
+            row = cursor.fetchone()
+            return Partido.from_tuple(row) if row else None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def crear_partido_definicion(
+        fecha: str,
+        equipo_local: str,
+        equipo_visita: str,
+        tiempos_por_partido: int = 2,
+        minutos_por_tiempo: int = 10,
+        jugadores_en_cancha: int = 7,
+    ) -> int:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            # Eliminar partido de definición previo para esta fecha si existe
+            cursor.execute("DELETE FROM partidos WHERE fecha=? AND es_definicion=1", (fecha,))
+            cursor.execute(
+                """
+                INSERT INTO partidos (grupo_id, fecha, equipo_local, equipo_visita, equipo_rival, es_principal, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha, es_definicion)
+                VALUES (NULL, ?, ?, ?, ?, 0, ?, ?, ?, 1)
+                """,
+                (fecha, equipo_local, equipo_visita, equipo_visita, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha),
+            )
+            partido_id = cursor.lastrowid
+            conn.commit()
+            return partido_id
+        finally:
+            conn.close()
+
+    @staticmethod
+    def eliminar_partido_definicion(fecha: str) -> bool:
+        conn = conectar_bd()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM partidos WHERE fecha=? AND es_definicion=1", (fecha,))
+            conn.commit()
+            return True
         finally:
             conn.close()
 
@@ -201,16 +386,17 @@ class PartidoRepository:
         tiempos_por_partido: int = 2,
         minutos_por_tiempo: int = 10,
         jugadores_en_cancha: int = 7,
+        es_definicion: bool = False,
     ) -> int:
         conn = conectar_bd()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO partidos (grupo_id, fecha, equipo_local, equipo_visita, equipo_rival, es_principal, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO partidos (grupo_id, fecha, equipo_local, equipo_visita, equipo_rival, es_principal, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha, es_definicion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (grupo_id, fecha, equipo_local, equipo_visita, equipo_rival, 1 if es_principal else 0, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha),
+                (grupo_id, fecha, equipo_local, equipo_visita, equipo_rival, 1 if es_principal else 0, tiempos_por_partido, minutos_por_tiempo, jugadores_en_cancha, 1 if es_definicion else 0),
             )
             partido_id = cursor.lastrowid
             conn.commit()
@@ -365,7 +551,16 @@ class DatabaseInitializer:
                     nombre TEXT NOT NULL,
                     fecha TEXT NOT NULL,
                     equipo_principal TEXT NOT NULL,
-                    equipos_json TEXT NOT NULL
+                    equipos_json TEXT NOT NULL,
+                    es_principal INTEGER DEFAULT 1
+                )
+            """)
+
+            # Tabla torneo_config
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS torneo_config (
+                    fecha TEXT PRIMARY KEY,
+                    partido_definicion INTEGER DEFAULT 0
                 )
             """)
 
@@ -392,11 +587,18 @@ class DatabaseInitializer:
                     eventos TEXT DEFAULT '[]',
                     minutos_partido TEXT DEFAULT '{}',
                     finalizado INTEGER DEFAULT 0,
-                    jugado INTEGER DEFAULT 0
+                    jugado INTEGER DEFAULT 0,
+                    es_definicion INTEGER DEFAULT 0
                 )
             """)
 
-            # Asegurar columnas requeridas (migración)
+            # Asegurar columnas en grupos
+            try:
+                cursor.execute("ALTER TABLE grupos ADD COLUMN es_principal INTEGER DEFAULT 1")
+            except Exception:
+                pass
+
+            # Asegurar columnas requeridas en partidos (migración)
             columnas_requeridas = [
                 ("grupo_id", "INTEGER"),
                 ("fecha", "TEXT DEFAULT ''"),
@@ -418,6 +620,7 @@ class DatabaseInitializer:
                 ("minutos_partido", "TEXT DEFAULT '{}'"),
                 ("finalizado", "INTEGER DEFAULT 0"),
                 ("jugado", "INTEGER DEFAULT 0"),
+                ("es_definicion", "INTEGER DEFAULT 0"),
             ]
 
             for col_nombre, col_tipo in columnas_requeridas:

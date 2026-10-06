@@ -10,6 +10,7 @@ class Grupo:
     fecha: str = ""
     equipo_principal: str = ""
     equipos: List[str] = None
+    es_principal: bool = True
 
     def __post_init__(self):
         if self.equipos is None:
@@ -22,6 +23,7 @@ class Grupo:
             "fecha": self.fecha,
             "equipo_principal": self.equipo_principal,
             "equipos": self.equipos,
+            "es_principal": self.es_principal,
         }
 
     @classmethod
@@ -32,6 +34,7 @@ class Grupo:
             fecha=data.get("fecha", ""),
             equipo_principal=data.get("equipo_principal", ""),
             equipos=data.get("equipos", []),
+            es_principal=bool(data.get("es_principal", True)),
         )
 
     @classmethod
@@ -42,10 +45,13 @@ class Grupo:
         except:
             equipos = []
         
+        es_principal = bool(tupla[5]) if len(tupla) > 5 else True
+        
         return cls(
             id=tupla[0] if len(tupla) > 0 else None,
             nombre=tupla[1] if len(tupla) > 1 else "",
             fecha=tupla[2] if len(tupla) > 2 else "",
             equipo_principal=tupla[3] if len(tupla) > 3 else "",
             equipos=equipos,
+            es_principal=es_principal,
         )

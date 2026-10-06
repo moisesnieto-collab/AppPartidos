@@ -26,6 +26,7 @@ class Partido:
     finalizado: bool = False
     jugado: bool = False
     alerta_custom: Optional[str] = None
+    es_definicion: bool = False
 
     def __post_init__(self):
         if self.titulares is None:
@@ -58,6 +59,7 @@ class Partido:
             "finalizado": self.finalizado,
             "jugado": self.jugado,
             "alerta_custom": self.alerta_custom,
+            "es_definicion": self.es_definicion,
         }
 
     @classmethod
@@ -84,6 +86,7 @@ class Partido:
             finalizado=data.get("finalizado", False),
             jugado=data.get("jugado", False),
             alerta_custom=data.get("alerta_custom"),
+            es_definicion=bool(data.get("es_definicion", False)),
         )
 
     @classmethod
@@ -115,6 +118,8 @@ class Partido:
         except:
             minutos_partido = {}
 
+        es_definicion = bool(tupla[19]) if len(tupla) > 19 else False
+
         return cls(
             id=tupla[0] if len(tupla) > 0 else None,
             grupo_id=tupla[1] if len(tupla) > 1 else None,
@@ -136,4 +141,5 @@ class Partido:
             finalizado=bool(tupla[17]) if len(tupla) > 17 else False,
             jugado=bool(tupla[18]) if len(tupla) > 18 else False,
             alerta_custom=alerta_persistida,
+            es_definicion=es_definicion,
         )
