@@ -591,7 +591,7 @@ class PartidoRepository:
                 """
                 UPDATE partidos
                 SET goles_local=?, goles_visita=?, segundos=?, segundos_acumulados=?, hora_inicio=?,
-                    titulares=?, eventos=?, minutos_partido=?, finalizado=?, jugado=1
+                    titulares=?, eventos=?, minutos_partido=?, finalizado=?, jugado=?
                 WHERE id=?
                 """,
                 (
@@ -604,6 +604,7 @@ class PartidoRepository:
                     json.dumps(paquete_eventos, ensure_ascii=False),
                     json.dumps(partido.minutos_partido, ensure_ascii=False),
                     1 if partido.finalizado else 0,
+                    1 if partido.jugado else 0,
                     partido.id,
                 ),
             )

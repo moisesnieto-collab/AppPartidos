@@ -40,11 +40,23 @@ class GrupoService:
             if p_dict.get("es_definicion"):
                 continue
 
-            eventos = p_dict.get("eventos", [])
+            hora_inicio = p_dict.get("hora_inicio")
             segundos = p_dict.get("segundos", 0)
+            segundos_acumulados = p_dict.get("segundos_acumulados", 0)
+            finalizado = p_dict.get("finalizado", False)
             jugado = p_dict.get("jugado", False)
 
-            if jugado or segundos > 0 or len(eventos) > 0:
+            # Un partido se considera iniciado y se suma a la tabla de posiciones
+            # únicamente si se inició el reloj (o ya finalizó / fue marcado como jugado)
+            partido_iniciado = bool(
+                hora_inicio is not None
+                or segundos > 0
+                or segundos_acumulados > 0
+                or finalizado
+                or jugado
+            )
+
+            if partido_iniciado:
                 loc = p_dict.get("equipo_local", "")
                 vis = p_dict.get("equipo_visita", "")
                 g_loc = int(p_dict.get("goles_local", 0))
@@ -135,12 +147,13 @@ class GrupoService:
         fecha: str,
         equipo_principal: str,
         lista_equipos: List[str],
-        es_invitado: bool = False,
+        es_superadmin: bool = False,
     ) -> Optional[int]:
         """
         Crea el grupo principal de la fecha y genera sus 6 partidos.
+        Solo permitido para SuperAdmin.
         """
-        if es_invitado:
+        if not es_superadmin:
             return None
         
         # Limpiar y deduplicar lista de equipos preservando orden
@@ -176,13 +189,14 @@ class GrupoService:
         nombre_grupo: str,
         fecha: str,
         lista_equipos: List[str],
-        es_invitado: bool = False,
+        es_superadmin: bool = False,
     ) -> Optional[int]:
         """
         Crea un grupo secundario/adicional para la fecha con 4 equipos rivales
         y genera automáticamente sus 6 partidos.
+        Solo permitido para SuperAdmin.
         """
-        if es_invitado:
+        if not es_superadmin:
             return None
 
         # Limpiar y deduplicar lista de equipos
@@ -219,14 +233,14 @@ class GrupoService:
         return grupo_id
 
     @staticmethod
-    def eliminar_grupo_por_id(grupo_id: int, es_invitado: bool = False) -> bool:
-        if es_invitado or not grupo_id:
+    def eliminar_grupo_por_id(grupo_id: int, es_superadmin: bool = False) -> bool:
+        if not es_superadmin or not grupo_id:
             return False
         return GrupoRepository.eliminar_por_id(grupo_id)
 
     @staticmethod
-    def eliminar_grupo_por_fecha(fecha: str, es_invitado: bool = False) -> bool:
-        if es_invitado or not fecha:
+    def eliminar_grupo_por_fecha(fecha: str, es_superadmin: bool = False) -> bool:
+        if not es_superadmin or not fecha:
             return False
         PartidoRepository.eliminar_por_fecha(fecha)
         GrupoRepository.eliminar_por_fecha(fecha)
@@ -234,8 +248,8 @@ class GrupoService:
         return True
 
     @staticmethod
-    def actualizar_opcion_definicion(fecha: str, partido_definicion: bool, es_invitado: bool = False) -> bool:
-        if es_invitado or not fecha:
+    def actualizar_opcion_definicion(fecha: str, partido_definicion: bool, es_superadmin: bool = False) -> bool:
+        if not es_superadmin or not fecha:
             return False
         ok = TorneoConfigRepository.guardar_opcion_definicion(fecha, partido_definicion)
         if not partido_definicion:

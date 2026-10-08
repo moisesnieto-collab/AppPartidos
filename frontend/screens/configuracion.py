@@ -173,9 +173,11 @@ class ConfiguracionScreen:
             self.callbacks["refrescar_vistas"]()
             self.page.update()
 
+        es_superadmin = bool(self.estado.get("es_superadmin", False))
+
         # Modal para agregar nuevo grupo secundario
         def abrir_modal_nuevo_grupo(e):
-            if self.estado["es_invitado"]:
+            if not es_superadmin:
                 return
 
             tf_modal_nombre = ft.TextField(
@@ -217,7 +219,7 @@ class ConfiguracionScreen:
                     return
 
                 fecha_actual = self.estado.get("fecha_filtro", datetime.now().strftime("%Y-%m-%d"))
-                nuevo_id = GrupoService.crear_grupo_adicional(nom, fecha_actual, eqs, self.estado["es_invitado"])
+                nuevo_id = GrupoService.crear_grupo_adicional(nom, fecha_actual, eqs, es_superadmin=es_superadmin)
                 if nuevo_id:
                     self.estado["grupo_seleccionado_id"] = nuevo_id
                     self.vista_activa = "grupo"
@@ -283,8 +285,8 @@ class ConfiguracionScreen:
                 )
             )
 
-            # Botón Agregar Grupo para Administrador
-            if not self.estado["es_invitado"]:
+            # Botón Agregar Grupo para SuperAdmin
+            if es_superadmin:
                 chips_grupos.append(
                     ft.ElevatedButton(
                         text="➕ Agregar Grupo",
@@ -403,10 +405,10 @@ class ConfiguracionScreen:
 
             # Switch de Definición con Partido Final
             def on_cambiar_modo_definicion(e):
-                if self.estado["es_invitado"]:
+                if not es_superadmin:
                     return
                 nuevo_val = bool(sw_partido_def.value)
-                GrupoService.actualizar_opcion_definicion(self.estado.get("fecha_filtro"), nuevo_val, self.estado["es_invitado"])
+                GrupoService.actualizar_opcion_definicion(self.estado.get("fecha_filtro"), nuevo_val, es_superadmin=es_superadmin)
                 self.callbacks["cargar_grupo"]()
                 self.callbacks["refrescar_vistas"]()
                 self.page.update()
@@ -414,7 +416,7 @@ class ConfiguracionScreen:
             sw_partido_def = ft.Switch(
                 label="Definir Campeón con Partido Final (1° vs 1°)",
                 value=con_partido_def,
-                disabled=self.estado["es_invitado"],
+                disabled=not es_superadmin,
                 active_color=COLOR_AMBAR,
                 on_change=on_cambiar_modo_definicion,
             )
@@ -624,14 +626,14 @@ class ConfiguracionScreen:
                 data_row_max_height=38,
             )
 
-            # Botón de eliminar grupo secundario si es admin
+            # Botón de eliminar grupo secundario si es SuperAdmin
             def confirmar_eliminar_grupo_secundario(ev):
-                if self.estado["es_invitado"]:
+                if not es_superadmin:
                     return
                 def cerrar_dlg_el(e):
                     self.page.close(dlg_eliminar_g)
                 def proc_eliminar_g(e):
-                    GrupoService.eliminar_grupo_por_id(grupo_actual["id"], self.estado["es_invitado"])
+                    GrupoService.eliminar_grupo_por_id(grupo_actual["id"], es_superadmin=es_superadmin)
                     self.page.close(dlg_eliminar_g)
                     self.estado["grupo_seleccionado_id"] = None
                     self.callbacks["cargar_grupo"]()
@@ -652,9 +654,9 @@ class ConfiguracionScreen:
             btn_eliminar_g_sec = ft.IconButton(
                 icon=ft.Icons.DELETE_OUTLINE,
                 icon_color=COLOR_ROJO,
-                tooltip="Eliminar este Grupo",
+                tooltip="Eliminar este Grupo (SuperAdmin)",
                 on_click=confirmar_eliminar_grupo_secundario,
-                visible=(not self.estado["es_invitado"] and not es_grupo_principal),
+                visible=(es_superadmin and not es_grupo_principal),
             )
 
             componente_tabla = ft.Container(
@@ -692,11 +694,14 @@ class ConfiguracionScreen:
                 es_partido_mi_equipo = (p["equipo_local"] == mi_equipo or p["equipo_visita"] == mi_equipo)
 
                 if es_partido_mi_equipo:
+                    es_local = (p["equipo_local"] == mi_equipo)
                     rival_nombre = (
                         p["equipo_visita"]
-                        if p["equipo_local"] == mi_equipo
+                        if es_local
                         else p["equipo_local"]
                     )
+                    goles_mi_equipo = p["goles_local"] if es_local else p["goles_visita"]
+                    goles_rival = p["goles_visita"] if es_local else p["goles_local"]
 
                     if self.estado["es_invitado"]:
                         accion_ui = ft.ElevatedButton(
@@ -736,7 +741,7 @@ class ConfiguracionScreen:
                         content=ft.Row([
                             ft.Column([
                                 ft.Text(f"vs {rival_nombre}", weight=ft.FontWeight.BOLD, size=14, color=COLOR_TEXTO),
-                                ft.Text(f"Marcador: {p['goles_local']} - {p['goles_visita']}", color=COLOR_VERDE if p["jugado"] else COLOR_SUBTEXTO, size=12),
+                                ft.Text(f"Marcador: {goles_mi_equipo} - {goles_rival}", color=COLOR_VERDE if p["jugado"] else COLOR_SUBTEXTO, size=12),
                             ], spacing=2),
                             acciones_card,
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -749,17 +754,40 @@ class ConfiguracionScreen:
                 else:
                     # Partidos de rivales (grupo principal o grupo secundario completo)
                     ha_jugado = p.get("jugado", False) or p.get("goles_local", 0) > 0 or p.get("goles_visita", 0) > 0
+                    partido_en_vivo = bool(
+                        p.get("hora_inicio") is not None
+                        or (p.get("segundos", 0) > 0 and not p.get("finalizado", False))
+                        or len(p.get("eventos", [])) > 0
+                    )
 
-                    if self.estado["es_invitado"]:
+                    # Solo el rol SuperAdmin puede ingresar y guardar marcadores de partidos de rivales
+                    # Para usuarios invitados o delegados estándar, se muestra la tarjeta de solo lectura
+                    if not es_superadmin:
+                        badge_en_vivo = None
+                        if partido_en_vivo and not self.estado["es_invitado"]:
+                            badge_en_vivo = ft.Container(
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.LOCK, size=11, color=COLOR_AMBAR),
+                                    ft.Text("En vivo / Con eventos", size=10, weight=ft.FontWeight.BOLD, color=COLOR_AMBAR),
+                                ], spacing=2),
+                                bgcolor=COLOR_BORDE,
+                                padding=ft.Padding(4, 2, 4, 2),
+                                border_radius=4,
+                                tooltip="Este partido se está administrando en vivo.",
+                            )
+
                         marcador_destacado = ft.Container(
-                            content=ft.Text(
-                                f"{p['goles_local']}  -  {p['goles_visita']}",
-                                weight=ft.FontWeight.BOLD,
-                                size=15,
-                                color=COLOR_AMBAR if ha_jugado else COLOR_TEXTO,
-                            ),
+                            content=ft.Row([
+                                ft.Text(
+                                    f"{p['goles_local']}  -  {p['goles_visita']}",
+                                    weight=ft.FontWeight.BOLD,
+                                    size=15,
+                                    color=COLOR_AMBAR if ha_jugado else COLOR_TEXTO,
+                                ),
+                                *([badge_en_vivo] if badge_en_vivo else [])
+                            ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
                             bgcolor=COLOR_FONDO,
-                            padding=ft.Padding(16, 6, 16, 6),
+                            padding=ft.Padding(12, 6, 12, 6),
                             border_radius=8,
                             border=ft.border.all(1.5, COLOR_AMBAR if ha_jugado else COLOR_BORDE),
                         )
@@ -791,16 +819,34 @@ class ConfiguracionScreen:
                         )
 
                         def crear_handler_guardar_rival(p_id, input_l, input_v):
-                            return lambda e: (
-                                PartidoService.guardar_marcador_rival(
+                            def _handler(e):
+                                try:
+                                    g_l = int(input_l.value or 0)
+                                    g_v = int(input_v.value or 0)
+                                except ValueError:
+                                    g_l, g_v = 0, 0
+
+                                ok, msg = PartidoService.guardar_marcador_rival(
                                     p_id,
-                                    int(input_l.value or 0),
-                                    int(input_v.value or 0),
-                                ),
-                                self.callbacks["cargar_grupo"](),
-                                self.callbacks["refrescar_vistas"](),
-                                self.page.update(),
-                            )
+                                    g_l,
+                                    g_v,
+                                    es_superadmin=es_superadmin,
+                                    es_invitado=self.estado.get("es_invitado", False),
+                                )
+                                if ok:
+                                    self.callbacks["cargar_grupo"]()
+                                    self.callbacks["refrescar_vistas"]()
+                                    self.page.open(
+                                        ft.SnackBar(content=ft.Text(f"✅ {msg}"), bgcolor=COLOR_VERDE)
+                                    )
+                                else:
+                                    self.page.open(
+                                        ft.SnackBar(content=ft.Text(f"⚠️ {msg}"), bgcolor=COLOR_AMBAR)
+                                    )
+                                self.page.update()
+                            return _handler
+
+                        tooltip_btn = "Guardar Marcador (SuperAdmin)"
 
                         card_rival = ft.Container(
                             content=ft.Row([
@@ -812,7 +858,7 @@ class ConfiguracionScreen:
                                 ft.IconButton(
                                     icon=ft.Icons.SAVE,
                                     icon_color=COLOR_CELESTE,
-                                    tooltip="Guardar Marcador",
+                                    tooltip=tooltip_btn,
                                     on_click=crear_handler_guardar_rival(p["id"], tf_g_loc, tf_g_vis),
                                 ),
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -873,8 +919,8 @@ class ConfiguracionScreen:
                     ft.Column(controls=partidos_rivales_ui or [ft.Text("Sin partidos asignados", color=COLOR_SUBTEXTO)], spacing=6),
                 ])
 
-        # Formulario de Crear Grupo Principal (si no existe) o Resetear Día (para Admin)
-        if not self.estado["es_invitado"]:
+        # Formulario de Crear Grupo Principal (si no existe) o Resetear Día (exclusivo SuperAdmin)
+        if es_superadmin:
             tf_nombre_grupo = ft.TextField(
                 label="Nombre del Grupo Principal",
                 value="Grupo A - Cuadrangular",
@@ -910,7 +956,7 @@ class ConfiguracionScreen:
             texto_feedback_grupo = ft.Text("", size=12)
 
             def click_generar_grupo(e):
-                if self.estado["es_invitado"]:
+                if not es_superadmin:
                     return
                 nom_g = tf_nombre_grupo.value.strip()
                 f_g = tf_fecha_grupo.value.strip()
@@ -937,7 +983,7 @@ class ConfiguracionScreen:
                     return
 
                 todos_los_equipos = [eq_princ] + lista_rivales
-                GrupoService.crear_grupo(nom_g, f_g, eq_princ, todos_los_equipos, self.estado["es_invitado"])
+                GrupoService.crear_grupo(nom_g, f_g, eq_princ, todos_los_equipos, es_superadmin=es_superadmin)
 
                 self.estado["fecha_filtro"] = f_g
                 self.estado["partido_activo_id"] = None
@@ -961,7 +1007,7 @@ class ConfiguracionScreen:
                 self.page.update()
 
             def confirmar_reset(e):
-                if self.estado["es_invitado"]:
+                if not es_superadmin:
                     return
 
                 fecha_a_borrar = (
@@ -974,7 +1020,7 @@ class ConfiguracionScreen:
                     self.page.close(dialogo_reset)
 
                 def procesar_reset(ev):
-                    GrupoService.eliminar_grupo_por_fecha(fecha_a_borrar, self.estado["es_invitado"])
+                    GrupoService.eliminar_grupo_por_fecha(fecha_a_borrar, es_superadmin=es_superadmin)
 
                     self.estado["partido_activo_id"] = None
                     self.estado["minutos_partido_actual"] = {}
@@ -1009,12 +1055,12 @@ class ConfiguracionScreen:
                 )
                 self.page.open(dialogo_reset)
 
-            # Mostrar bloque de creación de grupo principal si aún no hay grupos creados
+            # Mostrar bloque de creación de grupo principal si aún no hay grupos creados (solo SuperAdmin)
             if not grupos_dia:
                 elementos_columna.append(
                     ft.Container(
                         content=ft.Column([
-                            ft.Text("1. Definir Cuadrangular Principal", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
+                            ft.Text("1. Definir Cuadrangular Principal (SuperAdmin)", weight=ft.FontWeight.BOLD, color=COLOR_CELESTE),
                             ft.Row([tf_nombre_grupo, tf_fecha_grupo]),
                             ft.Row([tf_equipo_principal, tf_equipos_rivales]),
                             ft.Row([

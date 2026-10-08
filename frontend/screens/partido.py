@@ -17,28 +17,35 @@ class PartidoScreen:
         self.estado = estado
         self.page = page
         self.callbacks = callbacks
+        self.texto_reloj = ft.Text("00:00", size=48, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)
+        self.texto_alerta_cambio = ft.Text("", size=14, weight=ft.FontWeight.W_500)
 
     def actualizar_glosa(self):
-        if self.estado["corriendo"]:
+        if not hasattr(self, "texto_reloj") or self.texto_reloj is None:
+            return
+        if self.estado.get("corriendo"):
             self.texto_reloj.value = formatear_tiempo(obtener_segundos_actuales(self.estado))
             self.texto_reloj.color = COLOR_VERDE
-            self.texto_alerta_cambio.value = "⏱️ Cronómetro en curso..."
-            self.texto_alerta_cambio.color = COLOR_SUBTEXTO
-        elif self.estado["finalizado"]:
-            self.texto_reloj.value = formatear_tiempo(self.estado["segundos_acumulados"])
-            self.texto_reloj.color = COLOR_ROJO
-            self.texto_alerta_cambio.value = "🏁 Partido finalizado"
-            self.texto_alerta_cambio.color = COLOR_ROJO
-        else:
-            self.texto_reloj.value = formatear_tiempo(self.estado["segundos_acumulados"])
-            self.texto_reloj.color = COLOR_CELESTE
-            alerta = self.estado.get("alerta_custom")
-            if alerta:
-                self.texto_alerta_cambio.value = alerta
-                self.texto_alerta_cambio.color = COLOR_AMBAR
-            else:
-                self.texto_alerta_cambio.value = "⏸️ Cronómetro pausado"
+            if hasattr(self, "texto_alerta_cambio") and self.texto_alerta_cambio:
+                self.texto_alerta_cambio.value = "⏱️ Cronómetro en curso..."
                 self.texto_alerta_cambio.color = COLOR_SUBTEXTO
+        elif self.estado.get("finalizado"):
+            self.texto_reloj.value = formatear_tiempo(self.estado.get("segundos_acumulados", self.estado.get("segundos", 0)))
+            self.texto_reloj.color = COLOR_ROJO
+            if hasattr(self, "texto_alerta_cambio") and self.texto_alerta_cambio:
+                self.texto_alerta_cambio.value = "🏁 Partido finalizado"
+                self.texto_alerta_cambio.color = COLOR_ROJO
+        else:
+            self.texto_reloj.value = formatear_tiempo(self.estado.get("segundos_acumulados", self.estado.get("segundos", 0)))
+            self.texto_reloj.color = COLOR_CELESTE
+            if hasattr(self, "texto_alerta_cambio") and self.texto_alerta_cambio:
+                alerta = self.estado.get("alerta_custom")
+                if alerta:
+                    self.texto_alerta_cambio.value = alerta
+                    self.texto_alerta_cambio.color = COLOR_AMBAR
+                else:
+                    self.texto_alerta_cambio.value = "⏸️ Cronómetro pausado"
+                    self.texto_alerta_cambio.color = COLOR_SUBTEXTO
 
     def build(self):
         self.texto_reloj = ft.Text("00:00", size=48, weight=ft.FontWeight.BOLD, color=COLOR_CELESTE)
@@ -66,17 +73,12 @@ class PartidoScreen:
         es_visita = bool(p_act and p_act.get("equipo_visita") == mi_equipo)
         es_mi_partido = es_local or es_visita or (not p_act and not es_invitado)
 
-        # Autoridad de control según Opción A:
+        # Autoridad de control:
         # SuperAdmin: control total.
-        # DT Local: Anotador oficial con control de cronómetro.
-        # DT Visita: Puede iniciar si está detenido o visualizar en tiempo real.
+        # DTs participantes (Local y Visita): Control compartido de cronómetro y finalización.
         # Otros / Invitados: Solo lectura.
-        puede_controlar_reloj = (
-            es_superadmin or
-            (not es_invitado and es_local) or
-            (not es_invitado and es_visita and not self.estado.get("corriendo", False))
-        )
-        puede_finalizar = es_superadmin or (not es_invitado and es_local)
+        puede_controlar_reloj = es_superadmin or (not es_invitado and es_mi_partido)
+        puede_finalizar = es_superadmin or (not es_invitado and es_mi_partido)
         puede_registrar_eventos = es_superadmin or (not es_invitado and es_mi_partido)
 
         segs_actuales = obtener_segundos_actuales(self.estado)
@@ -88,11 +90,11 @@ class PartidoScreen:
             texto_badge_autoridad = "👑 SuperAdmin — Control Total del Partido"
             color_badge_autoridad = COLOR_VERDE
         elif not es_invitado and es_local:
-            texto_badge_autoridad = f"🛡️ DT Local ({mi_equipo}) — Anotador Oficial"
+            texto_badge_autoridad = f"🛡️ DT Local ({mi_equipo}) — Control en Vivo"
             color_badge_autoridad = COLOR_CELESTE
         elif not es_invitado and es_visita:
-            texto_badge_autoridad = f"🛡️ DT Visita ({mi_equipo}) — Eventos de su Plantel"
-            color_badge_autoridad = COLOR_AMBAR
+            texto_badge_autoridad = f"🛡️ DT Visita ({mi_equipo}) — Control en Vivo"
+            color_badge_autoridad = COLOR_CELESTE
         elif not es_invitado and not es_mi_partido:
             texto_badge_autoridad = "👁️ Modo Observador — Partido entre otros clubes"
             color_badge_autoridad = COLOR_SUBTEXTO
@@ -145,7 +147,7 @@ class PartidoScreen:
         def pausar_reloj(e):
             if es_invitado or self.estado["finalizado"]:
                 return
-            if not es_superadmin and not es_local and not self.estado.get("corriendo"):
+            if not puede_controlar_reloj and not self.estado.get("corriendo"):
                 return
             if self.estado["corriendo"]:
                 segs = obtener_segundos_actuales(self.estado)
@@ -184,24 +186,39 @@ class PartidoScreen:
             border_radius=10,
             disabled=es_fin or not puede_registrar_eventos,
         )
-        opciones_titulares = [
-            ft.dropdown.Option(nom) for nom in self.estado["titulares_seleccionados"]
+
+        # Lista de jugadores del equipo principal (filtrado estricto por club)
+        nombres_todos_jugadores = [j["nombre"] for j in jugadores]
+        # Asegurar que titulares_actuales contenga estrictamente jugadores de este equipo
+        titulares_actuales = [
+            nom for nom in self.estado.get("titulares_seleccionados", [])
+            if nom in nombres_todos_jugadores
         ]
+        tiene_titulares = len(titulares_actuales) > 0
+
+        if tiene_titulares:
+            opciones_base_jugadores = [ft.dropdown.Option(nom) for nom in titulares_actuales]
+            suplentes_no_titulares = [nom for nom in nombres_todos_jugadores if nom not in titulares_actuales]
+            if suplentes_no_titulares:
+                for nom in suplentes_no_titulares:
+                    opciones_base_jugadores.append(ft.dropdown.Option(f"{nom} (Suplente)"))
+            opciones_titulares_sale = [ft.dropdown.Option(nom) for nom in titulares_actuales]
+            suplentes_actuales = suplentes_no_titulares
+        else:
+            opciones_base_jugadores = []
+            opciones_titulares_sale = []
+            suplentes_actuales = []
+
         dd_jugador_titular = ft.Dropdown(
-            label="Jugador Titular",
-            options=opciones_titulares,
+            label="Jugador Titular" if tiene_titulares else "⚠️ Selecciona Titulares en Plantel",
+            options=opciones_base_jugadores,
             expand=True,
             border_color=COLOR_BORDE,
             focused_border_color=COLOR_CELESTE,
             border_radius=10,
-            disabled=es_fin or not puede_registrar_eventos,
+            disabled=es_fin or not puede_registrar_eventos or not tiene_titulares,
         )
 
-        suplentes_actuales = [
-            j["nombre"]
-            for j in jugadores
-            if j["nombre"] not in self.estado["titulares_seleccionados"]
-        ]
         dd_suplente_entra = ft.Dropdown(
             label="Entra (Suplente)",
             options=[ft.dropdown.Option(nom) for nom in suplentes_actuales],
@@ -210,28 +227,31 @@ class PartidoScreen:
             border_color=COLOR_BORDE,
             focused_border_color=COLOR_CELESTE,
             border_radius=10,
-            disabled=es_fin or not puede_registrar_eventos,
+            disabled=es_fin or not puede_registrar_eventos or not tiene_titulares,
         )
 
         texto_status_evento = ft.Text("", color=COLOR_VERDE, size=12)
 
         def al_cambiar_dropdown_evento(e):
             if dd_evento.value == "Gol":
-                dd_jugador_titular.label = "Autor del Gol"
+                dd_jugador_titular.label = "Autor del Gol" if tiene_titulares else "⚠️ Selecciona Titulares en Plantel"
                 if es_superadmin:
-                    dd_jugador_titular.options = [
-                        ft.dropdown.Option(f"⚡ Gol Rival ({nombre_rival})")
-                    ] + opciones_titulares
+                    opciones_gol = [ft.dropdown.Option(f"⚡ Gol Rival ({nombre_rival})")] + list(opciones_base_jugadores)
                 else:
-                    dd_jugador_titular.options = opciones_titulares
+                    opciones_gol = list(opciones_base_jugadores)
+                dd_jugador_titular.options = opciones_gol
+                dd_jugador_titular.disabled = es_fin or not puede_registrar_eventos or not tiene_titulares
                 dd_suplente_entra.visible = False
             elif dd_evento.value == "Cambio":
-                dd_jugador_titular.label = "Sale (Titular)"
-                dd_jugador_titular.options = opciones_titulares
+                dd_jugador_titular.label = "Sale (Titular)" if tiene_titulares else "⚠️ Selecciona Titulares en Plantel"
+                dd_jugador_titular.options = opciones_titulares_sale
+                dd_jugador_titular.disabled = es_fin or not puede_registrar_eventos or not tiene_titulares
+                dd_suplente_entra.options = [ft.dropdown.Option(nom) for nom in suplentes_actuales]
                 dd_suplente_entra.visible = True
             else:
-                dd_jugador_titular.label = "Jugador Titular"
-                dd_jugador_titular.options = opciones_titulares
+                dd_jugador_titular.label = "Jugador" if tiene_titulares else "⚠️ Selecciona Titulares en Plantel"
+                dd_jugador_titular.options = opciones_base_jugadores
+                dd_jugador_titular.disabled = es_fin or not puede_registrar_eventos or not tiene_titulares
                 dd_suplente_entra.visible = False
             self.page.update()
 
@@ -250,24 +270,52 @@ class PartidoScreen:
                 self.page.update()
                 return
 
+            if not es_superadmin and not tiene_titulares:
+                texto_status_evento.value = f"⚠️ Debes seleccionar los titulares de {nombre_principal} en la pestaña Plantel antes de registrar eventos."
+                texto_status_evento.color = COLOR_ROJO
+                self.page.update()
+                return
+
+            p_id = self.estado.get("partido_activo_id")
+            if not p_id:
+                texto_status_evento.value = "⚠️ No hay partido activo."
+                texto_status_evento.color = COLOR_ROJO
+                self.page.update()
+                return
+
             minuto_actual = f"{obtener_segundos_actuales(self.estado) // 60:02d}'"
 
             if tipo_evento == "Gol":
-                if "Gol Rival" in jugador_sel or jugador_sel == "⚡ Equipo Rival":
-                    self.estado["goles_rival"] += 1
-                    desc_evento = f"Gol de {nombre_rival}"
+                if es_superadmin and ("Gol Rival" in jugador_sel or "Equipo Rival" in jugador_sel or jugador_sel.startswith("⚡")):
                     eq_evento = nombre_rival
+                    desc_evento = f"Gol de {nombre_rival}"
                 else:
-                    self.estado["goles_local"] += 1
-                    desc_evento = f"Gol de {jugador_sel} ({nombre_principal})"
                     eq_evento = nombre_principal
+                    nom_limpio = jugador_sel.replace("(Suplente)", "").strip()
+                    desc_evento = f"Gol de {nom_limpio} ({nombre_principal})"
 
-                self.estado["eventos_registrados"].append({
-                    "minuto": minuto_actual,
-                    "evento": "Gol",
-                    "jugador": desc_evento,
-                    "equipo": eq_evento,
-                })
+                exito, msg, partido_act = PartidoService.agregar_evento_partido(
+                    partido_id=p_id,
+                    tipo_evento="Gol",
+                    jugador=desc_evento,
+                    minuto=minuto_actual,
+                    equipo=eq_evento,
+                    es_superadmin=es_superadmin,
+                    equipo_usuario=mi_equipo,
+                )
+
+                if exito and partido_act:
+                    es_loc = (partido_act.equipo_local == nombre_principal)
+                    self.estado["goles_local"] = partido_act.goles_local if es_loc else partido_act.goles_visita
+                    self.estado["goles_rival"] = partido_act.goles_visita if es_loc else partido_act.goles_local
+                    self.estado["eventos_registrados"] = ordenar_eventos(list(partido_act.eventos))
+                    texto_status_evento.value = msg
+                    texto_status_evento.color = COLOR_VERDE if "éxito" in msg or "actualizado" in msg else COLOR_AMBAR
+                    self.callbacks["guardar_partido"]()
+                    self.callbacks["refrescar_vistas"]()
+                else:
+                    texto_status_evento.value = f"❌ {msg}"
+                    texto_status_evento.color = COLOR_ROJO
 
             elif tipo_evento == "Cambio":
                 jugador_entra = dd_suplente_entra.value
@@ -279,54 +327,93 @@ class PartidoScreen:
 
                 actualizar_minutos_jugadores(self.estado)
 
-                if jugador_sel in self.estado["titulares_seleccionados"]:
-                    self.estado["titulares_seleccionados"].remove(jugador_sel)
-                if jugador_entra not in self.estado["titulares_seleccionados"]:
-                    self.estado["titulares_seleccionados"].append(jugador_entra)
+                nom_sale = jugador_sel.replace("(Suplente)", "").strip()
+                nom_entra = jugador_entra.replace("(Suplente)", "").strip()
 
-                desc_evento = f"Sale {jugador_sel} ➔ Entra {jugador_entra}"
-                self.estado["eventos_registrados"].append({
-                    "minuto": minuto_actual,
-                    "evento": "Cambio",
-                    "jugador": desc_evento,
-                    "equipo": nombre_principal,
-                })
+                if nom_sale in self.estado["titulares_seleccionados"]:
+                    self.estado["titulares_seleccionados"].remove(nom_sale)
+                if nom_entra not in self.estado["titulares_seleccionados"]:
+                    self.estado["titulares_seleccionados"].append(nom_entra)
+
+                desc_evento = f"Sale {nom_sale} ➔ Entra {nom_entra}"
+
+                exito, msg, partido_act = PartidoService.agregar_evento_partido(
+                    partido_id=p_id,
+                    tipo_evento="Cambio",
+                    jugador=desc_evento,
+                    minuto=minuto_actual,
+                    equipo=nombre_principal,
+                    es_superadmin=es_superadmin,
+                    equipo_usuario=mi_equipo,
+                )
+                if exito and partido_act:
+                    self.estado["eventos_registrados"] = ordenar_eventos(list(partido_act.eventos))
+                    texto_status_evento.value = "🔄 Cambio registrado con éxito."
+                    texto_status_evento.color = COLOR_VERDE
+                    self.callbacks["guardar_partido"]()
+                    self.callbacks["refrescar_vistas"]()
+                else:
+                    texto_status_evento.value = f"❌ {msg}"
+                    texto_status_evento.color = COLOR_ROJO
 
             else:
-                self.estado["eventos_registrados"].append({
-                    "minuto": minuto_actual,
-                    "evento": tipo_evento,
-                    "jugador": f"{jugador_sel} ({nombre_principal})",
-                    "equipo": nombre_principal,
-                })
+                nom_limpio = jugador_sel.replace("(Suplente)", "").strip()
+                desc_evento = f"{nom_limpio} ({nombre_principal})"
 
-            self.estado["eventos_registrados"] = ordenar_eventos(self.estado["eventos_registrados"])
-            self.callbacks["guardar_partido"]()
-            self.callbacks["refrescar_vistas"]()
+                exito, msg, partido_act = PartidoService.agregar_evento_partido(
+                    partido_id=p_id,
+                    tipo_evento=tipo_evento,
+                    jugador=desc_evento,
+                    minuto=minuto_actual,
+                    equipo=nombre_principal,
+                    es_superadmin=es_superadmin,
+                    equipo_usuario=mi_equipo,
+                )
+                if exito and partido_act:
+                    self.estado["eventos_registrados"] = ordenar_eventos(list(partido_act.eventos))
+                    texto_status_evento.value = f"✅ {tipo_evento} registrado con éxito."
+                    texto_status_evento.color = COLOR_VERDE
+                    self.callbacks["guardar_partido"]()
+                    self.callbacks["refrescar_vistas"]()
+                else:
+                    texto_status_evento.value = f"❌ {msg}"
+                    texto_status_evento.color = COLOR_ROJO
+
             self.page.update()
 
         def crear_handler_eliminar_evento(ev_obj):
             def handler(e):
                 if es_invitado:
                     return
-                # Validación de permisos para eliminar evento según Opción A
-                eq_ev = ev_obj.get("equipo")
-                if not es_superadmin and eq_ev and eq_ev != mi_equipo and eq_ev != nombre_principal:
-                    texto_status_evento.value = "⚠️ Solo el club que registró el evento o SuperAdmin puede eliminarlo."
-                    texto_status_evento.color = COLOR_ROJO
-                    self.page.update()
+
+                p_id = self.estado.get("partido_activo_id")
+                if not p_id:
                     return
 
-                if ev_obj in self.estado["eventos_registrados"]:
-                    self.estado["eventos_registrados"].remove(ev_obj)
-                    if ev_obj.get("evento") == "Gol":
-                        jug_txt = ev_obj.get("jugador", "")
-                        if "Gol Rival" in jug_txt or "Equipo Rival" in jug_txt or nombre_rival in jug_txt:
-                            self.estado["goles_rival"] = max(0, self.estado["goles_rival"] - 1)
-                        else:
-                            self.estado["goles_local"] = max(0, self.estado["goles_local"] - 1)
-                    self.callbacks["guardar_partido"]()
-                    self.callbacks["refrescar_vistas"]()
+                try:
+                    idx = self.estado["eventos_registrados"].index(ev_obj)
+                except ValueError:
+                    idx = -1
+
+                if idx >= 0:
+                    exito, msg, partido_act = PartidoService.eliminar_evento_partido(
+                        partido_id=p_id,
+                        indice_evento=idx,
+                        es_superadmin=es_superadmin,
+                        equipo_usuario=mi_equipo,
+                    )
+                    if exito and partido_act:
+                        es_loc = (partido_act.equipo_local == nombre_principal)
+                        self.estado["goles_local"] = partido_act.goles_local if es_loc else partido_act.goles_visita
+                        self.estado["goles_rival"] = partido_act.goles_visita if es_loc else partido_act.goles_local
+                        self.estado["eventos_registrados"] = ordenar_eventos(list(partido_act.eventos))
+                        texto_status_evento.value = f"🗑️ {msg}"
+                        texto_status_evento.color = COLOR_AMBAR
+                        self.callbacks["guardar_partido"]()
+                        self.callbacks["refrescar_vistas"]()
+                    else:
+                        texto_status_evento.value = f"⚠️ {msg}"
+                        texto_status_evento.color = COLOR_ROJO
                     self.page.update()
 
             return handler
@@ -416,15 +503,15 @@ class PartidoScreen:
                         icon_color=COLOR_VERDE if (not es_fin and puede_controlar_reloj) else COLOR_SUBTEXTO,
                         bgcolor=COLOR_BORDE,
                         disabled=es_fin or not puede_controlar_reloj,
-                        tooltip="Iniciar cronómetro (Anotador Oficial / SuperAdmin)" if puede_controlar_reloj else "Control exclusivo del DT Local / SuperAdmin",
+                        tooltip="Iniciar cronómetro" if puede_controlar_reloj else "Control exclusivo de delegados del partido / SuperAdmin",
                         on_click=iniciar_reloj,
                     ),
                     ft.IconButton(
                         icon=ft.Icons.PAUSE_ROUNDED,
                         icon_size=36,
-                        icon_color=COLOR_AMBAR if (not es_fin and (es_superadmin or es_local or self.estado.get("corriendo"))) else COLOR_SUBTEXTO,
+                        icon_color=COLOR_AMBAR if (not es_fin and puede_controlar_reloj) else COLOR_SUBTEXTO,
                         bgcolor=COLOR_BORDE,
-                        disabled=es_fin or not (es_superadmin or es_local or self.estado.get("corriendo")),
+                        disabled=es_fin or not puede_controlar_reloj,
                         tooltip="Pausar cronómetro",
                         on_click=pausar_reloj,
                     ),
@@ -434,6 +521,25 @@ class PartidoScreen:
         elementos_partido.append(ft.Divider(height=5, color=COLOR_BORDE))
 
         if not es_invitado and puede_registrar_eventos:
+            if not tiene_titulares and not es_superadmin:
+                elementos_partido.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=COLOR_AMBAR, size=20),
+                            ft.Text(
+                                f"⚠️ Debes ingresar a la pestaña 'Plantel' y seleccionar los titulares de {nombre_principal} para habilitar los eventos.",
+                                color=COLOR_AMBAR,
+                                size=11,
+                                weight=ft.FontWeight.BOLD,
+                                expand=True,
+                            ),
+                        ], spacing=6),
+                        bgcolor=COLOR_BORDE,
+                        padding=ft.Padding(8, 6, 8, 6),
+                        border_radius=8,
+                    )
+                )
+
             elementos_partido.extend([
                 ft.Text(
                     f"📝 Registrar Evento ({nombre_principal})",

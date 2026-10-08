@@ -50,7 +50,9 @@ def obtener_segundos_actuales(estado: dict) -> int:
     
     if estado.get("corriendo") and hora_inicio_str:
         try:
-            hora_inicio = datetime.fromisoformat(hora_inicio_str)
+            hora_inicio = datetime.fromisoformat(str(hora_inicio_str))
+            if hora_inicio.tzinfo is None:
+                hora_inicio = hora_inicio.replace(tzinfo=timezone.utc)
             ahora = datetime.now(timezone.utc)
             delta = int((ahora - hora_inicio).total_seconds())
             if delta > 0:
@@ -62,9 +64,9 @@ def obtener_segundos_actuales(estado: dict) -> int:
 
 
 def actualizar_minutos_jugadores(estado: dict, seg_actual: int = None) -> dict:
-    """Actualiza los minutos jugados por cada jugador titular"""
-    if not estado["corriendo"] or estado["finalizado"]:
-        return estado["minutos_partido_actual"]
+    """Actualiza los minutos jugados por cada jugador titular de los equipos participantes con titulares definidos"""
+    if not estado.get("corriendo") or estado.get("finalizado"):
+        return estado.get("minutos_partido_actual", {})
     
     if seg_actual is None:
         seg_actual = obtener_segundos_actuales(estado)
@@ -73,10 +75,35 @@ def actualizar_minutos_jugadores(estado: dict, seg_actual: int = None) -> dict:
     delta = seg_actual - ultimo
     
     if delta > 0:
-        for jugador in estado["titulares_seleccionados"]:
-            estado["minutos_partido_actual"][jugador] = (
-                estado["minutos_partido_actual"].get(jugador, 0) + delta
-            )
+        if "minutos_partido_actual" not in estado:
+            estado["minutos_partido_actual"] = {}
+
+        # 1. Obtener titulares del equipo del usuario actual
+        jugadores_a_sumar = set(estado.get("titulares_seleccionados", []))
+
+        # 2. Obtener titulares del partido activo para ambos equipos si están definidos
+        partido_activo_id = estado.get("partido_activo_id")
+        partidos = estado.get("partidos_grupo", [])
+        p_act = next((p for p in partidos if p.get("id") == partido_activo_id), None)
+
+        if p_act:
+            tits = p_act.get("titulares", {})
+            if isinstance(tits, dict):
+                for eq, lista_tits in tits.items():
+                    if lista_tits and isinstance(lista_tits, list):
+                        for jug in lista_tits:
+                            if jug:
+                                jugadores_a_sumar.add(jug)
+            elif isinstance(tits, list):
+                for jug in tits:
+                    if jug:
+                        jugadores_a_sumar.add(jug)
+
+        for jugador in jugadores_a_sumar:
+            if jugador:
+                estado["minutos_partido_actual"][jugador] = (
+                    estado["minutos_partido_actual"].get(jugador, 0) + delta
+                )
         estado["ultimo_segundo_procesado"] = seg_actual
     
     return estado["minutos_partido_actual"]

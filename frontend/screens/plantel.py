@@ -23,6 +23,12 @@ class PlantelScreen:
             or self.estado.get("config", {}).get("fecha", "")
         )
         jugadores = JugadorService.obtener_todos_ordenados(equipo=equipo_activo, fecha=fecha_filtro)
+        nombres_plantel = [j["nombre"] for j in jugadores]
+        # Asegurar que los titulares seleccionados solo contengan jugadores de este club
+        self.estado["titulares_seleccionados"] = [
+            nom for nom in self.estado.get("titulares_seleccionados", [])
+            if nom in nombres_plantel
+        ]
         max_titulares = self.estado["config"]["jugadores_en_cancha"]
         es_bloqueado = self.estado["finalizado"] or self.estado["es_invitado"]
 

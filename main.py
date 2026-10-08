@@ -11,6 +11,7 @@ from config.constants import (
 )
 from backend.database.repositories import DatabaseInitializer
 from backend.services.grupo_service import GrupoService
+from backend.services.jugador_service import JugadorService
 from backend.services.partido_service import PartidoService
 from backend.services.usuario_service import UsuarioService
 from backend.models.partido import Partido
@@ -177,7 +178,22 @@ def main(page: ft.Page):
         estado["corriendo"] = estado["hora_inicio"] is not None
         estado["segundos"] = obtener_segundos_actuales(estado)
         estado["ultimo_segundo_procesado"] = estado["segundos"]
-        estado["titulares_seleccionados"] = list(partido["titulares"])
+
+        # Filtrar titulares para que correspondan estrictamente al equipo activo (target_team)
+        titulares_raw = partido.get("titulares", [])
+        if isinstance(titulares_raw, dict):
+            titulares_de_mi_equipo = list(titulares_raw.get(target_team, []))
+        else:
+            jugadores_eq = [
+                j["nombre"]
+                for j in JugadorService.obtener_todos_ordenados(
+                    equipo=target_team,
+                    fecha=partido.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+                )
+            ]
+            titulares_de_mi_equipo = [nom for nom in titulares_raw if nom in jugadores_eq]
+        estado["titulares_seleccionados"] = titulares_de_mi_equipo
+
         estado["eventos_registrados"] = ordenar_eventos(list(partido["eventos"]))
         estado["alerta_custom"] = partido.get("alerta_custom")
         estado["minutos_partido_actual"] = dict(partido["minutos_partido"])
@@ -204,15 +220,58 @@ def main(page: ft.Page):
         if not p_act:
             return
 
+        # Sincronizar diccionario en memoria y marcador
+        es_local = (p_act["equipo_local"] == estado["config"]["equipo_principal"])
+        p_act["goles_local"] = estado["goles_local"] if es_local else estado["goles_rival"]
+        p_act["goles_visita"] = estado["goles_rival"] if es_local else estado["goles_local"]
+        p_act["jugado"] = True if (
+            estado.get("hora_inicio") is not None
+            or seg_actuales > 0
+            or estado.get("segundos_acumulados", 0) > 0
+            or estado.get("finalizado", False)
+            or p_act.get("jugado", False)
+        ) else False
+        p_act["segundos"] = seg_actuales
+        p_act["segundos_acumulados"] = estado["segundos_acumulados"]
+        p_act["hora_inicio"] = estado["hora_inicio"]
+
+        # Guardar titulares indexados por club para no sobreescribir ni mezclar con el rival
+        titulares_actuales = p_act.get("titulares", {})
+        if isinstance(titulares_actuales, dict):
+            titulares_dict = dict(titulares_actuales)
+        else:
+            titulares_dict = {}
+            if p_act.get("equipo_local"):
+                titulares_dict[p_act["equipo_local"]] = [n for n in titulares_actuales]
+
+        mi_club = estado["config"]["equipo_principal"]
+        titulares_dict[mi_club] = list(estado["titulares_seleccionados"])
+        p_act["titulares"] = titulares_dict
+
+        p_act["eventos"] = list(estado["eventos_registrados"])
+        p_act["alerta_custom"] = estado["alerta_custom"]
+        p_act["minutos_partido"] = dict(estado["minutos_partido_actual"])
+        p_act["finalizado"] = estado["finalizado"]
+
+        # Recalcular tabla de posiciones para el grupo activo en grupos_dia
+        for g_data in estado.get("grupos_dia", []):
+            if any(p["id"] == p_act["id"] for p in g_data.get("partidos", [])):
+                g_data["tabla"] = GrupoService.calcular_tabla_grupo(
+                    g_data.get("partidos", []),
+                    g_data.get("grupo", {}).get("equipos", [])
+                )
+                break
+
         partido = Partido.from_dict(p_act)
         partido.segundos = seg_actuales
         partido.segundos_acumulados = estado["segundos_acumulados"]
         partido.hora_inicio = estado["hora_inicio"]
-        partido.titulares = estado["titulares_seleccionados"]
+        partido.titulares = titulares_dict
         partido.eventos = estado["eventos_registrados"]
         partido.alerta_custom = estado["alerta_custom"]
         partido.minutos_partido = estado["minutos_partido_actual"]
         partido.finalizado = estado["finalizado"]
+        partido.jugado = p_act["jugado"]
 
         PartidoService.guardar_estado_partido(
             partido,
@@ -379,6 +438,12 @@ def main(page: ft.Page):
     # Implementar refrescar_vistas
     def refrescar_vistas():
         actualizar_header_app()
+        # Asegurar que las tablas de posiciones de cada grupo estén actualizadas
+        for g_data in estado.get("grupos_dia", []):
+            g_data["tabla"] = GrupoService.calcular_tabla_grupo(
+                g_data.get("partidos", []),
+                g_data.get("grupo", {}).get("equipos", [])
+            )
         contenedor_config.content = screen_config.build()
         contenedor_plantel.content = screen_plantel.build()
         contenedor_partido.content = screen_partido.build()
@@ -427,6 +492,13 @@ def main(page: ft.Page):
     def cambiar_pantalla(e):
         indice = e.control.selected_index
         estado["pestana_activa"] = indice
+
+        # Asegurar recálculo de tablas al navegar
+        for g_data in estado.get("grupos_dia", []):
+            g_data["tabla"] = GrupoService.calcular_tabla_grupo(
+                g_data.get("partidos", []),
+                g_data.get("grupo", {}).get("equipos", [])
+            )
 
         if estado["es_invitado"]:
             contenedor_config.visible = indice == 0
@@ -541,11 +613,10 @@ def main(page: ft.Page):
         )
         page.open(dialogo_rol)
 
-    # Loop del cronómetro y sincronización
+    # Loop del cronómetro (alta precisión UI) y loop de sincronización en segundo plano
     async def loop_reloj():
-        contador_sync = 0
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
             seg = obtener_segundos_actuales(estado)
             estado["segundos"] = seg
@@ -553,7 +624,7 @@ def main(page: ft.Page):
             duracion_tiempo_segs = estado["config"]["minutos_por_tiempo"] * 60
             duracion_total_partido = duracion_tiempo_segs * estado["config"]["tiempos_por_partido"]
 
-            # Solo el administrador actualiza localmente
+            # Solo el administrador actualiza localmente minutos y límites de tiempo
             if not estado["es_invitado"]:
                 if estado["corriendo"] and not estado["finalizado"]:
                     actualizar_minutos_jugadores(estado, seg)
@@ -584,13 +655,27 @@ def main(page: ft.Page):
                                 refrescar_vistas()
                                 break
 
-            # Sincronización multi-dispositivo
-            contador_sync += 1
-            intervalo_sync = 2 if estado["pestana_activa"] == 2 else 10
+            # Actualizar glosa del reloj en pantalla Partido
+            try:
+                screen_partido.actualizar_glosa()
+                if hasattr(screen_partido, "texto_reloj") and screen_partido.texto_reloj.page:
+                    screen_partido.texto_reloj.update()
+                    if hasattr(screen_partido, "texto_alerta_cambio") and screen_partido.texto_alerta_cambio.page:
+                        screen_partido.texto_alerta_cambio.update()
+                else:
+                    page.update()
+            except Exception:
+                pass
 
-            if contador_sync >= intervalo_sync:
+    # Sincronización multi-dispositivo en segundo plano (asíncrona y no bloqueante)
+    async def loop_sincronizacion():
+        while True:
+            intervalo_sync = 2 if estado["pestana_activa"] == 2 else 10
+            await asyncio.sleep(intervalo_sync)
+            try:
                 if estado["grupo_activo"] and estado["partido_activo_id"]:
-                    hubo_cambio, nuevos_partidos = PartidoService.sincronizar_desde_bd(
+                    hubo_cambio, nuevos_partidos = await asyncio.to_thread(
+                        PartidoService.sincronizar_desde_bd,
                         estado["grupo_activo"]["id"],
                         estado["partido_activo_id"],
                         estado,
@@ -598,15 +683,21 @@ def main(page: ft.Page):
                     )
                     if hubo_cambio:
                         estado["partidos_grupo"] = nuevos_partidos
+                        for g_data in estado.get("grupos_dia", []):
+                            if g_data.get("grupo", {}).get("id") == estado["grupo_activo"]["id"]:
+                                g_data["partidos"] = nuevos_partidos
+                                g_data["tabla"] = GrupoService.calcular_tabla_grupo(
+                                    nuevos_partidos,
+                                    g_data.get("grupo", {}).get("equipos", [])
+                                )
+                                break
                         refrescar_vistas()
-                contador_sync = 0
-
-            try:
-                page.update()
+                        page.update()
             except Exception:
                 pass
 
     page.run_task(loop_reloj)
+    page.run_task(loop_sincronizacion)
 
     # Layout principal
     app_layout = ft.Container(

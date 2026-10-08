@@ -65,11 +65,18 @@ def mostrar_dialogo_mantenedor_eventos(
     goles_visita_val = [partido_obj.goles_visita]
     finalizado_val = [partido_obj.finalizado]
 
-    if es_superadmin:
-        jugadores = JugadorService.obtener_todos_ordenados()
-    else:
-        jugadores = JugadorService.obtener_todos_ordenados(equipo=mi_equipo, fecha=partido_obj.fecha)
-    nombres_jugadores = [j["nombre"] for j in jugadores]
+    def obtener_titulares_equipo_local(partido: Partido) -> List[str]:
+        eq_local = partido.equipo_local
+        titulares_data = partido.titulares
+        if isinstance(titulares_data, dict):
+            return [nom for nom in titulares_data.get(eq_local, []) if nom and str(nom).strip()]
+        elif isinstance(titulares_data, list):
+            jugadores_eq = [
+                j["nombre"]
+                for j in JugadorService.obtener_todos_ordenados(equipo=eq_local, fecha=partido.fecha)
+            ]
+            return [nom for nom in titulares_data if nom in jugadores_eq and str(nom).strip()]
+        return []
 
     # Contenedores dinámicos
     lista_eventos_col = ft.Column(spacing=6, scroll=ft.ScrollMode.ADAPTIVE)
@@ -127,18 +134,10 @@ def mostrar_dialogo_mantenedor_eventos(
         dense=True,
     )
 
-    if es_superadmin:
-        opciones_jugadores = [ft.dropdown.Option("⚡ Gol Rival")] + [
-            ft.dropdown.Option(nom) for nom in nombres_jugadores
-        ]
-    else:
-        opciones_jugadores = [
-            ft.dropdown.Option(nom) for nom in nombres_jugadores
-        ]
     dd_jugador = ft.Dropdown(
-        label=f"Jugador ({'Todos' if es_superadmin else mi_equipo})",
-        options=opciones_jugadores,
-        value=nombres_jugadores[0] if nombres_jugadores else (opciones_jugadores[0].key if opciones_jugadores else None),
+        label="Titular",
+        options=[],
+        value=None,
         expand=True,
         border_color=COLOR_BORDE,
         focused_border_color=COLOR_CELESTE,
@@ -148,8 +147,8 @@ def mostrar_dialogo_mantenedor_eventos(
 
     dd_suplente_entra = ft.Dropdown(
         label="Entra suplente",
-        options=[ft.dropdown.Option(nom) for nom in nombres_jugadores],
-        value=nombres_jugadores[1] if len(nombres_jugadores) > 1 else None,
+        options=[],
+        value=None,
         expand=True,
         border_color=COLOR_BORDE,
         focused_border_color=COLOR_CELESTE,
@@ -157,6 +156,27 @@ def mostrar_dialogo_mantenedor_eventos(
         visible=False,
         dense=True,
     )
+
+    def actualizar_dropdown_jugadores():
+        nombres_titulares = obtener_titulares_equipo_local(partido_obj)
+        if nombres_titulares:
+            dd_jugador.options = [ft.dropdown.Option(nom) for nom in nombres_titulares]
+            dd_jugador.value = nombres_titulares[0]
+            dd_jugador.label = f"Titulares ({partido_obj.equipo_local})"
+            dd_jugador.disabled = False
+            dd_suplente_entra.options = [ft.dropdown.Option(nom) for nom in nombres_titulares]
+            dd_suplente_entra.value = nombres_titulares[1] if len(nombres_titulares) > 1 else None
+            dd_suplente_entra.disabled = False
+        else:
+            dd_jugador.options = []
+            dd_jugador.value = None
+            dd_jugador.label = f"Sin titulares ({partido_obj.equipo_local})"
+            dd_jugador.disabled = True
+            dd_suplente_entra.options = []
+            dd_suplente_entra.value = None
+            dd_suplente_entra.disabled = True
+
+    actualizar_dropdown_jugadores()
 
     def on_tipo_evento_change(e):
         dd_suplente_entra.visible = (dd_tipo_evento.value == "Cambio")
@@ -220,9 +240,11 @@ def mostrar_dialogo_mantenedor_eventos(
                 )
 
                 eq_ev = ev.get("equipo")
+                es_gol_generico = (tipo == "Gol" and ("Gol Rival" in jug or "Gol de " in jug or "⚡" in jug))
                 puede_editar_borrar = (
                     es_superadmin or
-                    (eq_ev == mi_equipo or (not eq_ev and mi_equipo in jug))
+                    (eq_ev == mi_equipo or (not eq_ev and mi_equipo in jug)) or
+                    es_gol_generico
                 )
 
                 def crear_handler_borrar(indice_a_borrar):
@@ -374,6 +396,7 @@ def mostrar_dialogo_mantenedor_eventos(
             cb_finalizado.value = finalizado_val[0]
             texto_equipos_header.value = f"{partido_obj.equipo_local}  vs  {partido_obj.equipo_visita}"
             texto_feedback.value = ""
+            actualizar_dropdown_jugadores()
             refrescar_lista_eventos_ui()
             page.update()
 
@@ -390,37 +413,16 @@ def mostrar_dialogo_mantenedor_eventos(
             min_txt = f"{min_txt}'"
 
         if not tipo_ev or not jug_sel:
-            texto_feedback.value = "⚠️ Debes seleccionar tipo de evento y jugador."
+            texto_feedback.value = f"⚠️ No hay jugadores titulares definidos para {partido_obj.equipo_local}." if not jug_sel else "⚠️ Debes seleccionar tipo de evento y jugador."
             texto_feedback.color = COLOR_ROJO
             page.update()
             return
 
+        eq_ev = partido_obj.equipo_local
         if tipo_ev == "Gol":
-            if jug_sel in ["⚡ Equipo Rival", "⚡ Gol Rival"]:
-                rival_del_partido = (
-                    partido_obj.equipo_visita
-                    if partido_obj.equipo_local == mi_equipo
-                    else partido_obj.equipo_local
-                )
-                desc_ev = f"Gol de {rival_del_partido}"
-                eq_ev = rival_del_partido
-                if rival_del_partido == partido_obj.equipo_visita:
-                    goles_visita_val[0] = int(tf_goles_visita.value or 0) + 1
-                    tf_goles_visita.value = str(goles_visita_val[0])
-                else:
-                    goles_local_val[0] = int(tf_goles_local.value or 0) + 1
-                    tf_goles_local.value = str(goles_local_val[0])
-            else:
-                eq_ev = mi_equipo if not es_superadmin else (
-                    partido_obj.equipo_local if partido_obj.equipo_local in jug_sel else partido_obj.equipo_visita
-                )
-                desc_ev = f"Gol de {jug_sel} ({eq_ev})"
-                if eq_ev == partido_obj.equipo_local:
-                    goles_local_val[0] = int(tf_goles_local.value or 0) + 1
-                    tf_goles_local.value = str(goles_local_val[0])
-                else:
-                    goles_visita_val[0] = int(tf_goles_visita.value or 0) + 1
-                    tf_goles_visita.value = str(goles_visita_val[0])
+            desc_ev = f"Gol de {jug_sel} ({eq_ev})"
+            goles_local_val[0] = int(tf_goles_local.value or 0) + 1
+            tf_goles_local.value = str(goles_local_val[0])
 
             eventos_locales.append({
                 "minuto": min_txt,
@@ -435,7 +437,6 @@ def mostrar_dialogo_mantenedor_eventos(
                 texto_feedback.color = COLOR_ROJO
                 page.update()
                 return
-            eq_ev = mi_equipo if not es_superadmin else partido_obj.equipo_local
             desc_ev = f"Sale {jug_sel} ➔ Entra {suplente}"
             eventos_locales.append({
                 "minuto": min_txt,
@@ -444,7 +445,6 @@ def mostrar_dialogo_mantenedor_eventos(
                 "equipo": eq_ev,
             })
         else:
-            eq_ev = mi_equipo if not es_superadmin else partido_obj.equipo_local
             eventos_locales.append({
                 "minuto": min_txt,
                 "evento": tipo_ev,
